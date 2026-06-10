@@ -21,7 +21,11 @@ class AudioEngine {
   metronomeLoop: Tone.Loop | null = null;
   isMetronomeEnabled = false;
   trackSynths: Map<string, Tone.PolySynth> = new Map();
+  // Ground-truth set of pitches currently held via playNoteRealtime
+  realtimeNotes = new Set<string>();
   private pendingReleases = new Set<string>();
+  // Per-pitch dedicated Synth instances for reliable release
+  private noteSynths = new Map<string, Tone.Synth>();
 
   onNotePlay?: (pitch: string) => void;
   onNoteStop?: (pitch: string) => void;
@@ -76,21 +80,43 @@ class AudioEngine {
   playNoteRealtime(pitch: string) {
     if (!this.initialized) return;
     if (this.pendingReleases.has(pitch)) {
-      // key was released before init completed — skip the attack entirely
       this.pendingReleases.delete(pitch);
       return;
     }
-    this.getRealtimeInstrument().triggerAttack(pitch);
+    // If a per-note synth already exists for this pitch, release it first
+    // (handles rapid double-press before React state catches up)
+    const existing = this.noteSynths.get(pitch);
+    if (existing) {
+      existing.triggerRelease();
+      setTimeout(() => existing.dispose(), 2000);
+      this.noteSynths.delete(pitch);
+    }
+    this.realtimeNotes.add(pitch);
+    if (this.sampler && this.sampler.loaded) {
+      this.sampler.triggerAttack(pitch);
+    } else {
+      const synth = new Tone.Synth({
+        oscillator: { type: 'triangle' as any },
+        envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 1 }
+      }).toDestination();
+      this.noteSynths.set(pitch, synth);
+      synth.triggerAttack(pitch);
+    }
   }
 
   stopNoteRealtime(pitch: string) {
     if (!this.initialized) {
-      // init still in progress — remember not to play this pitch when it resolves
       this.pendingReleases.add(pitch);
       return;
     }
     this.pendingReleases.delete(pitch);
-    this.fallbackSynth?.triggerRelease(pitch);
+    this.realtimeNotes.delete(pitch);
+    const synth = this.noteSynths.get(pitch);
+    if (synth) {
+      synth.triggerRelease();
+      setTimeout(() => synth.dispose(), 2000);
+      this.noteSynths.delete(pitch);
+    }
     if (this.sampler?.loaded) this.sampler.triggerRelease(pitch);
   }
 

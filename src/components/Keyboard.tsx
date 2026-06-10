@@ -71,7 +71,7 @@ export function Keyboard({
       const pitch = keyToPitch(e.key);
       if (pitch) {
         if (latchMode) {
-          if (activeNotes.has(pitch)) onNoteOff(pitch);
+          if (activeNotes.has(pitch) || audio.realtimeNotes.has(pitch)) onNoteOff(pitch);
           else onNoteOn(pitch);
         } else {
           onNoteOn(pitch);
@@ -115,7 +115,7 @@ export function Keyboard({
         // Note on
         if (command === 9 && velocity > 0) {
             if (latchMode) {
-                if (activeNotes.has(pitch)) onNoteOff(pitch);
+                if (activeNotes.has(pitch) || audio.realtimeNotes.has(pitch)) onNoteOff(pitch);
                 else onNoteOn(pitch);
             } else {
                 onNoteOn(pitch);
