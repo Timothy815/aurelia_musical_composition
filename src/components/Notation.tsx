@@ -45,6 +45,7 @@ export function Notation({
   loopEnabled,
   loopStart,
   loopEnd,
+  chordLabels,
 }: {
   song: SongData;
   onUpdateSong: (s: SongData | ((s: SongData) => SongData)) => void;
@@ -61,6 +62,7 @@ export function Notation({
   loopEnabled?: boolean;
   loopStart?: number;
   loopEnd?: number;
+  chordLabels?: Map<number, string>;
 }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -364,6 +366,28 @@ export function Notation({
             );
           })
         }
+
+        {/* Chord labels above first track's stave */}
+        {chordLabels && [...chordLabels.entries()].map(([beatPos, label]) => {
+          const mIndex = Math.floor(beatPos / beatsPerMeasure);
+          const rowIdx = Math.floor(mIndex / measuresPerRow);
+          const colIdx = mIndex % measuresPerRow;
+          if (rowIdx >= numRows) return null;
+          const beatInMeasure = beatPos - mIndex * beatsPerMeasure;
+          const x = P8 + getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT;
+          const y = P8 + rowIdx * song.tracks.length * TRACK_HEIGHT + STAVE_Y_FIRST - 14;
+          return (
+            <div
+              key={`chord-${beatPos}`}
+              className="absolute z-20 pointer-events-none select-none"
+              style={{ left: x, top: y, transform: 'translate(-50%, -100%)' }}
+            >
+              <span className="text-[10px] font-serif italic text-[#D4AF37] whitespace-nowrap leading-none">
+                {label}
+              </span>
+            </div>
+          );
+        })}
 
         {/* Per-track, per-measure grid sections */}
         {song.tracks.map((track, tIndex) =>
