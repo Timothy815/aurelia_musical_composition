@@ -120,6 +120,7 @@ export default function App() {
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [loopStart, setLoopStart] = useState(0);
   const [loopEnd, setLoopEnd] = useState(8);
+  const [showGuitarTab, setShowGuitarTab] = useState(false);
   const [clipboard, setClipboard] = useState<{ notes: NoteData[]; trackIds: string[] } | null>(null);
   const [pianoReady, setPianoReady] = useState(false);
 
@@ -455,6 +456,17 @@ export default function App() {
             </div>
           )}
 
+          {/* Guitar Tab */}
+          <button
+            onClick={() => setShowGuitarTab(v => !v)}
+            className={cn("flex items-center gap-1 px-2 py-1 text-[10px] rounded border transition-colors",
+              showGuitarTab ? "border-[#D4AF37] text-[#D4AF37] bg-[#D4AF37]/10" : "border-[#333] text-[#8E8E93] hover:text-white hover:border-[#555]"
+            )}
+            title="Toggle Guitar Tab"
+          >
+            <span className="uppercase tracking-wider">Tab</span>
+          </button>
+
           <div className="w-px h-5 bg-[#1F1F21] mx-1" />
           <button
             onClick={() => saveFile(song)}
@@ -755,6 +767,7 @@ export default function App() {
             loopStart={loopStart}
             loopEnd={loopEnd}
             chordLabels={chordLabels}
+            showGuitarTab={showGuitarTab}
           />
         </main>
 

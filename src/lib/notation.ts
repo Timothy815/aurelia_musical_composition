@@ -13,6 +13,42 @@ export const GRID_TOP_OFFSET = 25; // grid overlay starts this many px above sta
 export const GRID_SUBDIVISIONS = 4;
 export const CELL_WIDTH = PIXELS_PER_BEAT / GRID_SUBDIVISIONS; // 15
 export const CELL_HEIGHT = 10;
+export const TAB_TRACK_HEIGHT_EXTRA = 130; // additional px per track when showing guitar tab
+
+// ── Guitar Tab helpers ──────────────────────────────────────────────────────
+const GUITAR_OPEN_MIDI = [64, 59, 55, 50, 45, 40]; // str 1-6: E4 B3 G3 D3 A2 E2
+
+function noteToMidi(pitch: string): number {
+  const SHARP = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const FLAT  = ['C','Db','D','Eb', 'E','F','Gb','G','Ab','A','Bb', 'B'];
+  const m = pitch.match(/^([A-G][#b]?)(\d+)$/);
+  if (!m) return -1;
+  let pc = SHARP.indexOf(m[1]);
+  if (pc === -1) pc = FLAT.indexOf(m[1]);
+  return pc < 0 ? -1 : pc + (parseInt(m[2]) + 1) * 12;
+}
+
+function pitchesToTabPositions(pitches: string[]): Array<{ str: number; fret: string }> {
+  const notes = pitches
+    .map(p => ({ midi: noteToMidi(p) }))
+    .filter(n => n.midi >= 0)
+    .sort((a, b) => b.midi - a.midi); // highest pitch first → assign to highest string
+  const used = new Set<number>();
+  const result: Array<{ str: number; fret: string }> = [];
+  for (const n of notes) {
+    for (let i = 0; i < GUITAR_OPEN_MIDI.length; i++) {
+      const str = i + 1;
+      if (used.has(str)) continue;
+      const fret = n.midi - GUITAR_OPEN_MIDI[i];
+      if (fret >= 0 && fret <= 24) {
+        result.push({ str, fret: fret.toString() });
+        used.add(str);
+        break;
+      }
+    }
+  }
+  return result;
+}
 
 export interface NotationLayout {
   measuresPerRow: number;
@@ -22,9 +58,10 @@ export interface NotationLayout {
   notesWidthPerMeasure: number;
   svgWidth: number;
   svgHeight: number;
+  effectiveTrackHeight: number;
 }
 
-export function calcLayout(song: SongData, availableWidth: number): NotationLayout {
+export function calcLayout(song: SongData, availableWidth: number, showGuitarTab = false): NotationLayout {
   const beatsPerMeasure = song.timeSignature[0];
   const notesWidthPerMeasure = beatsPerMeasure * PIXELS_PER_BEAT;
   const firstMeasureWidth = FIRST_MEASURE_EXTRA + notesWidthPerMeasure;
@@ -43,9 +80,10 @@ export function calcLayout(song: SongData, availableWidth: number): NotationLayo
   const numRows = Math.ceil(totalMeasures / measuresPerRow);
 
   const svgWidth = 10 + firstMeasureWidth + Math.max(0, measuresPerRow - 1) * laterMeasureWidth + 10;
-  const svgHeight = numRows * song.tracks.length * TRACK_HEIGHT + STAVE_Y_FIRST + 20;
+  const effectiveTrackHeight = showGuitarTab ? TRACK_HEIGHT + TAB_TRACK_HEIGHT_EXTRA : TRACK_HEIGHT;
+  const svgHeight = numRows * song.tracks.length * effectiveTrackHeight + STAVE_Y_FIRST + 20;
 
-  return { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgWidth, svgHeight };
+  return { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgWidth, svgHeight, effectiveTrackHeight };
 }
 
 // staveX in SVG coords for a given column index within a row
@@ -172,15 +210,16 @@ export function renderNotation(
   container: HTMLElement,
   song: SongData,
   theme: 'dark' | 'light' = 'dark',
-  availableWidth?: number
+  availableWidth?: number,
+  showGuitarTab = false
 ) {
   container.innerHTML = '';
   const VF = VexFlow;
   const fg = theme === 'light' ? '#000000' : '#F2F2F2';
 
   const width = availableWidth ?? Math.max(300, (container.parentElement?.clientWidth ?? 900) - 64);
-  const layout = calcLayout(song, width);
-  const { measuresPerRow, totalMeasures, notesWidthPerMeasure } = layout;
+  const layout = calcLayout(song, width, showGuitarTab);
+  const { measuresPerRow, totalMeasures, notesWidthPerMeasure, effectiveTrackHeight } = layout;
 
   const renderer = new VF.Renderer(container as HTMLDivElement, RendererBackends.SVG);
   renderer.resize(layout.svgWidth, layout.svgHeight);
@@ -204,7 +243,7 @@ export function renderNotation(
       const staveWidth = colIdx === 0
         ? FIRST_MEASURE_EXTRA + notesWidthPerMeasure
         : BARLINE_PADDING + notesWidthPerMeasure;
-      const staveY = rowIdx * song.tracks.length * TRACK_HEIGHT + tIndex * TRACK_HEIGHT + STAVE_Y_FIRST;
+      const staveY = rowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST;
 
       const stave = new VF.Stave(staveX, staveY, staveWidth);
 
@@ -220,6 +259,45 @@ export function renderNotation(
       stave.setContext(context).draw();
 
       renderTrackMeasure(VF, context, track, song, mIndex, layout, stave, fg);
+
+      // Guitar tab stave
+      if (showGuitarTab) {
+        const tabStaveY = staveY + TRACK_HEIGHT + 10;
+        const tabStave = new VF.TabStave(staveX, tabStaveY, staveWidth);
+        if (colIdx === 0) tabStave.addClef('tab');
+        tabStave.setStyle({ fillStyle: fg, strokeStyle: fg });
+        tabStave.setContext(context).draw();
+
+        const noteStartX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure);
+        const mStart = mIndex * layout.beatsPerMeasure;
+        const mEnd = (mIndex + 1) * layout.beatsPerMeasure;
+        const notesInMeasure = track.notes.filter(n =>
+          !n.isRest && n.start >= mStart - 0.001 && n.start < mEnd - 0.001
+        );
+
+        const byBeat = new Map<number, NoteData[]>();
+        notesInMeasure.forEach(n => {
+          const k = Math.round(n.start * 100) / 100;
+          if (!byBeat.has(k)) byBeat.set(k, []);
+          byBeat.get(k)!.push(n);
+        });
+
+        [...byBeat.entries()].sort(([a], [b]) => a - b).forEach(([beat, chord]) => {
+          const beatInMeasure = beat - mStart;
+          const positions = pitchesToTabPositions(chord.map(n => n.pitch));
+          if (positions.length === 0) return;
+          try {
+            const tabNote = new VF.TabNote({ positions, duration: durToVF(chord[0].duration) });
+            tabNote.setStyle({ fillStyle: fg, strokeStyle: fg });
+            const tc = new VF.TickContext();
+            tc.addTickable(tabNote);
+            const desiredX = noteStartX + beatInMeasure * PIXELS_PER_BEAT;
+            tc.preFormat().setX(desiredX - tabStave.getNoteStartX() - VEXFLOW_NOTE_OFFSET);
+            tabNote.setStave(tabStave);
+            tabNote.setContext(context).draw();
+          } catch (_) {}
+        });
+      }
     }
   });
 }
@@ -232,8 +310,8 @@ export function renderNotationToCanvas(
   pageWidth: number
 ) {
   const VF = VexFlow;
-  const layout = calcLayout(song, pageWidth);
-  const { measuresPerRow, totalMeasures, notesWidthPerMeasure, beatsPerMeasure } = layout;
+  const layout = calcLayout(song, pageWidth, false);
+  const { measuresPerRow, totalMeasures, notesWidthPerMeasure, beatsPerMeasure, effectiveTrackHeight } = layout;
 
   canvas.width = layout.svgWidth * scale;
   canvas.height = layout.svgHeight * scale;
@@ -258,7 +336,7 @@ export function renderNotationToCanvas(
       const staveWidth = (colIdx === 0
         ? FIRST_MEASURE_EXTRA + notesWidthPerMeasure
         : BARLINE_PADDING + notesWidthPerMeasure) * scale;
-      const staveY = (rowIdx * song.tracks.length * TRACK_HEIGHT + tIndex * TRACK_HEIGHT + STAVE_Y_FIRST) * scale;
+      const staveY = (rowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST) * scale;
 
       const stave = new VF.Stave(staveX, staveY, staveWidth);
 
