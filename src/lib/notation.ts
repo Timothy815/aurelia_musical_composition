@@ -3,7 +3,8 @@ import { SongData, NoteData } from '../types';
 
 // Shared layout constants — also imported by Notation.tsx for grid overlay alignment
 export const PIXELS_PER_BEAT = 60;
-export const FIRST_MEASURE_EXTRA = 90; // px reserved for clef + key sig + time sig
+export const FIRST_MEASURE_EXTRA = 90; // px reserved for clef + key sig + time sig (col=0)
+export const BARLINE_PADDING = 10;     // px between left barline and first note in col>0 staves
 export const TRACK_HEIGHT = 150;
 export const STAVE_Y_FIRST = 40;
 export const GRID_TOP_OFFSET = 25; // grid overlay starts this many px above stave Y
@@ -24,6 +25,8 @@ export interface NotationLayout {
 export function calcLayout(song: SongData, availableWidth: number): NotationLayout {
   const beatsPerMeasure = song.timeSignature[0];
   const notesWidthPerMeasure = beatsPerMeasure * PIXELS_PER_BEAT;
+  const firstMeasureWidth = FIRST_MEASURE_EXTRA + notesWidthPerMeasure;
+  const laterMeasureWidth = BARLINE_PADDING + notesWidthPerMeasure;
 
   let maxBeats = beatsPerMeasure * 4;
   song.tracks.forEach(t => t.notes.forEach(n => {
@@ -32,12 +35,12 @@ export function calcLayout(song: SongData, availableWidth: number): NotationLayo
   }));
 
   const totalMeasures = Math.ceil(maxBeats / beatsPerMeasure);
-  const measuresPerRow = Math.max(1, Math.floor(
-    (Math.max(availableWidth, FIRST_MEASURE_EXTRA + notesWidthPerMeasure + 20) - FIRST_MEASURE_EXTRA - 20) / notesWidthPerMeasure
-  ));
+  const minWidth = 20 + firstMeasureWidth;
+  const usableWidth = Math.max(availableWidth, minWidth);
+  const measuresPerRow = Math.max(1, 1 + Math.floor((usableWidth - 20 - firstMeasureWidth) / laterMeasureWidth));
   const numRows = Math.ceil(totalMeasures / measuresPerRow);
 
-  const svgWidth = 10 + FIRST_MEASURE_EXTRA + measuresPerRow * notesWidthPerMeasure + 10;
+  const svgWidth = 10 + firstMeasureWidth + Math.max(0, measuresPerRow - 1) * laterMeasureWidth + 10;
   const svgHeight = numRows * song.tracks.length * TRACK_HEIGHT + STAVE_Y_FIRST + 20;
 
   return { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgWidth, svgHeight };
@@ -45,12 +48,14 @@ export function calcLayout(song: SongData, availableWidth: number): NotationLayo
 
 // staveX in SVG coords for a given column index within a row
 export function getMeasureStaveX(colIdx: number, notesWidthPerMeasure: number): number {
-  return colIdx === 0 ? 10 : 10 + FIRST_MEASURE_EXTRA + colIdx * notesWidthPerMeasure;
+  if (colIdx === 0) return 10;
+  // col 0 has width FIRST_MEASURE_EXTRA+notesWidthPerMeasure; subsequent cols have width BARLINE_PADDING+notesWidthPerMeasure
+  return 10 + (FIRST_MEASURE_EXTRA + notesWidthPerMeasure) + (colIdx - 1) * (BARLINE_PADDING + notesWidthPerMeasure);
 }
 
 // X where notes begin for a given column index (shared between SVG render and grid overlay)
 export function getMeasureNoteStartX(colIdx: number, notesWidthPerMeasure: number): number {
-  return 10 + FIRST_MEASURE_EXTRA + colIdx * notesWidthPerMeasure;
+  return getMeasureStaveX(colIdx, notesWidthPerMeasure) + (colIdx === 0 ? FIRST_MEASURE_EXTRA : BARLINE_PADDING);
 }
 
 function durToVF(beats: number): string {
@@ -193,7 +198,7 @@ export function renderNotation(
       const staveX = getMeasureStaveX(colIdx, notesWidthPerMeasure);
       const staveWidth = colIdx === 0
         ? FIRST_MEASURE_EXTRA + notesWidthPerMeasure
-        : notesWidthPerMeasure;
+        : BARLINE_PADDING + notesWidthPerMeasure;
       const staveY = rowIdx * song.tracks.length * TRACK_HEIGHT + tIndex * TRACK_HEIGHT + STAVE_Y_FIRST;
 
       const stave = new VF.Stave(staveX, staveY, staveWidth);
@@ -247,7 +252,7 @@ export function renderNotationToCanvas(
       const staveX = getMeasureStaveX(colIdx, notesWidthPerMeasure) * scale;
       const staveWidth = (colIdx === 0
         ? FIRST_MEASURE_EXTRA + notesWidthPerMeasure
-        : notesWidthPerMeasure) * scale;
+        : BARLINE_PADDING + notesWidthPerMeasure) * scale;
       const staveY = (rowIdx * song.tracks.length * TRACK_HEIGHT + tIndex * TRACK_HEIGHT + STAVE_Y_FIRST) * scale;
 
       const stave = new VF.Stave(staveX, staveY, staveWidth);
