@@ -79,7 +79,9 @@ class AudioEngine {
 
   stopNoteRealtime(pitch: string) {
     if (!this.initialized) return;
-    this.getRealtimeInstrument().triggerRelease(pitch);
+    // Release on both instruments: sampler may have loaded between attack and release
+    this.fallbackSynth?.triggerRelease(pitch);
+    if (this.sampler?.loaded) this.sampler.triggerRelease(pitch);
   }
 
   playNotePreview(pitch: string, preset?: InstrumentPreset) {

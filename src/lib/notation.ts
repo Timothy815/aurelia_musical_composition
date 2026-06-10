@@ -3,7 +3,7 @@ import { SongData, NoteData } from '../types';
 
 // Shared layout constants — also imported by Notation.tsx for grid overlay alignment
 export const PIXELS_PER_BEAT = 60;
-export const FIRST_MEASURE_EXTRA = 90; // px reserved for clef + key sig + time sig (col=0)
+export const FIRST_MEASURE_EXTRA = 110; // px reserved for clef + key sig + time sig (col=0)
 export const BARLINE_PADDING = 10;     // px between left barline and first note in col>0 staves
 export const TRACK_HEIGHT = 150;
 export const STAVE_Y_FIRST = 40;
