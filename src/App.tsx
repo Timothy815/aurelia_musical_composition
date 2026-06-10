@@ -73,7 +73,7 @@ export default function App() {
   }, [histState.present]);
 
   const [isPlaying, setIsPlaying] = useState(false);
-  const [playMode, setPlayMode] = useState(false);
+  const [playMode, setPlayMode] = useState(true);
   const [metronomeStatus, setMetronomeStatus] = useState(false);
   const [activeNotes, setActiveNotes] = useState<Set<string>>(new Set());
   const [playingNotes, setPlayingNotes] = useState<Set<string>>(new Set());
