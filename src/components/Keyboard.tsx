@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
+import { audio } from '../lib/audio';
 import { cn } from '../lib/utils';
 
 // Standard piano key layout mapping for QWERTY
@@ -45,6 +46,7 @@ export function Keyboard({
   latchMode?: boolean;
 }) {
   const [qwertyOctave, setQwertyOctave] = useState(4);
+  const [volume, setVolume] = useState(0.8);
 
   const keyToPitch = useCallback((key: string) => {
     const offset = QWERTY_OFFSETS[key.toLowerCase()];
@@ -229,10 +231,18 @@ export function Keyboard({
         </div>
         <div className="flex gap-6">
           <div className="flex items-center gap-2">
-            <div className="w-32 h-1 bg-[#1F1F21] rounded-full overflow-hidden">
-              <div className="w-[65%] h-full bg-[#D4AF37]"></div>
-            </div>
-            <span className="text-[9px] text-[#8E8E93]">Volume</span>
+            <span className="text-[9px] text-[#8E8E93] uppercase tracking-widest">Vol</span>
+            <input
+              type="range"
+              min={0} max={1} step={0.01}
+              value={volume}
+              onChange={e => {
+                const v = parseFloat(e.target.value);
+                setVolume(v);
+                audio.setVolume(v);
+              }}
+              className="w-24 h-1 accent-[#D4AF37] cursor-pointer"
+            />
           </div>
         </div>
       </div>

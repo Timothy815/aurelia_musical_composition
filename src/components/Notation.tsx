@@ -292,11 +292,32 @@ export function Notation({
       let didChange = false;
 
       if (selectedNoteIds.size > 0) {
-        // Remove selected notes
+        // Build a map of deleted beat positions → duration, so we can shift
+        // notes that come after each deletion to close the gap.
+        const allNotes = song.tracks.flatMap(t => t.notes);
+        const deletedBeats = new Map<number, number>();
+        allNotes.forEach(n => {
+          if (!selectedNoteIds.has(n.id)) return;
+          const prev = deletedBeats.get(n.start) ?? 0;
+          deletedBeats.set(n.start, Math.max(prev, n.duration));
+        });
+        const sortedBeats = [...deletedBeats.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([start, duration]) => ({ start, duration }));
+
+        const shiftFor = (noteStart: number) =>
+          sortedBeats.reduce(
+            (acc, b) => acc + (b.start < noteStart - 0.001 ? b.duration : 0),
+            0
+          );
+
         newTracks = newTracks.map(track => {
-          const filtered = track.notes.filter(n => !selectedNoteIds.has(n.id));
-          if (filtered.length !== track.notes.length) didChange = true;
-          return { ...track, notes: filtered };
+          const before = track.notes.length;
+          const remaining = track.notes
+            .filter(n => !selectedNoteIds.has(n.id))
+            .map(n => ({ ...n, start: n.start - shiftFor(n.start) }));
+          if (remaining.length !== before) didChange = true;
+          return { ...track, notes: remaining };
         });
         setSelectedNoteIds(new Set());
       } else {

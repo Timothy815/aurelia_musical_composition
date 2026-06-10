@@ -187,6 +187,11 @@ class AudioEngine {
   setTempo(tempo: number) {
     Tone.Transport.bpm.value = tempo;
   }
+
+  setVolume(value: number) { // 0–1 linear
+    const db = value === 0 ? -Infinity : 20 * Math.log10(value);
+    Tone.getDestination().volume.value = db;
+  }
 }
 
 export const audio = new AudioEngine();
