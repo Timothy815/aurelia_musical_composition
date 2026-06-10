@@ -100,8 +100,13 @@ export default function App() {
   const combinedNotes = useMemo(() => {
     const c = new Set(activeNotes);
     playingNotes.forEach(n => c.add(n));
+    if (selectedNoteIds.size > 0) {
+      song.tracks.forEach(t => t.notes.forEach(n => {
+        if (selectedNoteIds.has(n.id) && !n.isRest) c.add(n.pitch);
+      }));
+    }
     return c;
-  }, [activeNotes, playingNotes]);
+  }, [activeNotes, playingNotes, selectedNoteIds, song]);
 
   const togglePlay = async () => {
     await audio.init();
