@@ -483,7 +483,7 @@ export default function App() {
             Open
           </button>
           <div className="w-px h-5 bg-[#1F1F21] mx-1" />
-          <button onClick={() => exportToPdf(song)} className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded">
+          <button onClick={() => exportToPdf(song, showGuitarTab)} className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded">
             PDF
           </button>
           <button onClick={() => exportToMidi(song)} className="px-3 py-1.5 bg-[#D4AF37] hover:bg-[#C19E30] text-[#0A0A0B] text-[10px] font-bold uppercase tracking-widest transition-colors rounded">

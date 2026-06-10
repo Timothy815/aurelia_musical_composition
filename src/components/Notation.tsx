@@ -5,12 +5,79 @@ import {
   getMeasureNoteStartX,
   PIXELS_PER_BEAT, FIRST_MEASURE_EXTRA, STAVE_Y_FIRST,
   GRID_TOP_OFFSET, GRID_SUBDIVISIONS, CELL_WIDTH, CELL_HEIGHT,
+  TRACK_HEIGHT, TAB_TRACK_HEIGHT_EXTRA,
+  pitchesToChordDiagram, ChordDiagramResult,
 } from '../lib/notation';
 import { SongData, NoteData } from '../types';
 import { generateId, cn } from '../lib/utils';
 
 const PITCHES = ['B5', 'A5', 'G5', 'F5', 'E5', 'D5', 'C5', 'B4', 'A4', 'G4', 'F4', 'E4', 'D4', 'C4', 'B3', 'A3', 'G3', 'F3', 'E3', 'D3', 'C3', 'B2', 'A2', 'G2', 'F2', 'E2'];
 const P8 = 32; // container padding (p-8 = 2rem = 32px)
+
+// Dimensions for each chord diagram box
+const DIAG_W = 66;
+const DIAG_H = 88;
+const DIAG_FRET_ROWS = 4;
+
+function ChordDiagramSVG({ frets, baseFret, fg = '#F2F2F2' }: ChordDiagramResult & { fg?: string }) {
+  const lPad = baseFret > 1 ? 15 : 5;
+  const rPad = 4;
+  const tPad = 20;
+  const bPad = 6;
+  const strW = DIAG_W - lPad - rPad;
+  const strSpacing = strW / 5;
+  const strXs = Array.from({ length: 6 }, (_, i) => lPad + i * strSpacing);
+  const fretSpacing = (DIAG_H - tPad - bPad) / DIAG_FRET_ROWS;
+  const fretLineYs = Array.from({ length: DIAG_FRET_ROWS + 1 }, (_, i) => tPad + i * fretSpacing);
+
+  // Diagram left-to-right: low E (index 5) → high e (index 0)
+  const diagOrder = [5, 4, 3, 2, 1, 0];
+
+  return (
+    <svg width={DIAG_W} height={DIAG_H} viewBox={`0 0 ${DIAG_W} ${DIAG_H}`}>
+      {/* Horizontal fret lines */}
+      {fretLineYs.map((y, i) => (
+        <line key={i} x1={strXs[0]} y1={y} x2={strXs[5]} y2={y}
+          stroke={fg} strokeWidth={i === 0 && baseFret === 1 ? 3 : 0.8}
+          strokeOpacity={i === 0 && baseFret === 1 ? 0.85 : 0.55} />
+      ))}
+      {/* Vertical string lines */}
+      {strXs.map((x, i) => (
+        <line key={i} x1={x} y1={tPad} x2={x} y2={tPad + DIAG_FRET_ROWS * fretSpacing}
+          stroke={fg} strokeWidth={0.8} strokeOpacity={0.5} />
+      ))}
+      {/* String indicators (x/o) and finger dots */}
+      {diagOrder.map((strIdx, diagPos) => {
+        const fret = frets[strIdx];
+        const x = strXs[diagPos];
+        const slot = fret != null && fret > 0 ? fret - baseFret : null;
+        const inRange = slot !== null && slot >= 0 && slot < DIAG_FRET_ROWS;
+        return (
+          <g key={diagPos}>
+            {fret === null && (
+              <text x={x} y={tPad - 5} textAnchor="middle" fontSize={10}
+                fontFamily="Arial, sans-serif" fill={fg} fillOpacity={0.45}>×</text>
+            )}
+            {fret === 0 && (
+              <circle cx={x} cy={tPad - 7} r={3} fill="none"
+                stroke={fg} strokeWidth={1} strokeOpacity={0.75} />
+            )}
+            {inRange && (
+              <circle cx={x} cy={fretLineYs[slot!] + fretSpacing / 2}
+                r={fretSpacing * 0.34} fill={fg} fillOpacity={0.88} />
+            )}
+          </g>
+        );
+      })}
+      {/* Position label (e.g. "5fr") when not in open position */}
+      {baseFret > 1 && (
+        <text x={lPad - 3} y={fretLineYs[0] + fretSpacing * 0.65}
+          textAnchor="end" fontSize={7} fontFamily="Arial, sans-serif"
+          fill={fg} fillOpacity={0.65}>{baseFret}fr</text>
+      )}
+    </svg>
+  );
+}
 
 type DragBox = {
   tIndex: number;
@@ -389,6 +456,41 @@ export function Notation({
               </span>
             </div>
           );
+        })}
+
+        {/* Chord diagram boxes below each track's stave (when guitar tab is on) */}
+        {showGuitarTab && song.tracks.map((track, tIndex) => {
+          // Collect unique beat positions with at least one non-rest note
+          const beats = new Map<number, string[]>();
+          track.notes.forEach(n => {
+            if (n.isRest) return;
+            const k = Math.round(n.start * 100) / 100;
+            if (!beats.has(k)) beats.set(k, []);
+            beats.get(k)!.push(n.pitch);
+          });
+
+          return [...beats.entries()].map(([beatPos, pitches]) => {
+            const mIndex = Math.floor(beatPos / beatsPerMeasure);
+            const rowIdx = Math.floor(mIndex / measuresPerRow);
+            const colIdx = mIndex % measuresPerRow;
+            if (rowIdx >= numRows) return null;
+            const beatInMeasure = beatPos - mIndex * beatsPerMeasure;
+            const beatX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT;
+            const staveY = rowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST;
+            const diagram = pitchesToChordDiagram(pitches);
+            return (
+              <div
+                key={`diag-${tIndex}-${beatPos}`}
+                className="absolute pointer-events-none z-20"
+                style={{
+                  left: P8 + beatX - DIAG_W / 2,
+                  top: P8 + staveY + TRACK_HEIGHT + 10,
+                }}
+              >
+                <ChordDiagramSVG {...diagram} fg="#C8C8D0" />
+              </div>
+            );
+          });
         })}
 
         {/* Per-track, per-measure grid sections */}

@@ -15,8 +15,14 @@ export const CELL_WIDTH = PIXELS_PER_BEAT / GRID_SUBDIVISIONS; // 15
 export const CELL_HEIGHT = 10;
 export const TAB_TRACK_HEIGHT_EXTRA = 130; // additional px per track when showing guitar tab
 
-// ── Guitar Tab helpers ──────────────────────────────────────────────────────
-const GUITAR_OPEN_MIDI = [64, 59, 55, 50, 45, 40]; // str 1-6: E4 B3 G3 D3 A2 E2
+// ── Guitar chord diagram helpers ─────────────────────────────────────────────
+// String indices: 0 = high e (E4=64), 1 = B3, 2 = G3, 3 = D3, 4 = A2, 5 = low E (E2=40)
+const GUITAR_OPEN_MIDI = [64, 59, 55, 50, 45, 40];
+
+export interface ChordDiagramResult {
+  frets: Array<number | null>; // index 0=high e … 5=low E; null=muted, 0=open, 1+=fret
+  baseFret: number;            // fret number shown at top of diagram
+}
 
 function noteToMidi(pitch: string): number {
   const SHARP = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
@@ -28,26 +34,75 @@ function noteToMidi(pitch: string): number {
   return pc < 0 ? -1 : pc + (parseInt(m[2]) + 1) * 12;
 }
 
-function pitchesToTabPositions(pitches: string[]): Array<{ str: number; fret: string }> {
-  const notes = pitches
-    .map(p => ({ midi: noteToMidi(p) }))
-    .filter(n => n.midi >= 0)
-    .sort((a, b) => b.midi - a.midi); // highest pitch first → assign to highest string
-  const used = new Set<number>();
-  const result: Array<{ str: number; fret: string }> = [];
-  for (const n of notes) {
-    for (let i = 0; i < GUITAR_OPEN_MIDI.length; i++) {
-      const str = i + 1;
-      if (used.has(str)) continue;
-      const fret = n.midi - GUITAR_OPEN_MIDI[i];
-      if (fret >= 0 && fret <= 24) {
-        result.push({ str, fret: fret.toString() });
-        used.add(str);
-        break;
+// Find the best string/fret assignment for a set of pitches using backtracking.
+// Tries every 4-fret window, maximises note coverage, then minimises fret position.
+export function pitchesToChordDiagram(pitches: string[]): ChordDiagramResult {
+  const empty: ChordDiagramResult = { frets: Array(6).fill(null) as Array<number|null>, baseFret: 1 };
+  const midiNotes = [...new Set(pitches.map(noteToMidi).filter(m => m >= 0))].sort((a, b) => a - b);
+  if (midiNotes.length === 0) return empty;
+
+  // All playable (string, fret) options for each note, across the whole neck
+  const allOpts: Array<Array<{s: number; f: number}>> = midiNotes.map(midi => {
+    const opts: Array<{s: number; f: number}> = [];
+    for (let s = 0; s < 6; s++) {
+      const f = midi - GUITAR_OPEN_MIDI[s];
+      if (f >= 0 && f <= 22) opts.push({ s, f });
+    }
+    return opts;
+  });
+
+  let best = { coverage: 0, score: Infinity, frets: empty.frets, baseFret: 1 };
+
+  for (let win = 0; win <= 14; win++) {
+    const lo = win === 0 ? 1 : win;
+    const hi = win + 4;
+
+    const winOpts = allOpts.map(opts =>
+      opts.filter(o => o.f === 0 || (o.f >= lo && o.f <= hi))
+    );
+
+    let localBest: Array<{s: number; f: number}> | null = null;
+    let localCov = 0;
+    let localScore = Infinity;
+
+    const bt = (i: number, used: Set<number>, cur: Array<{s: number; f: number}>) => {
+      if (i === midiNotes.length) {
+        const nzF = cur.filter(p => p.f > 0).map(p => p.f);
+        const span = nzF.length > 1 ? Math.max(...nzF) - Math.min(...nzF) : 0;
+        if (span > 4) return;
+        const minF = nzF.length > 0 ? Math.min(...nzF) : 0;
+        const score = minF * 10 + span;
+        if (cur.length > localCov || (cur.length === localCov && score < localScore)) {
+          localCov = cur.length; localScore = score; localBest = [...cur];
+        }
+        return;
+      }
+      // skip this note
+      bt(i + 1, used, cur);
+      // place this note
+      for (const o of winOpts[i]) {
+        if (!used.has(o.s)) {
+          used.add(o.s); cur.push(o);
+          bt(i + 1, used, cur);
+          cur.pop(); used.delete(o.s);
+        }
+      }
+    };
+    bt(0, new Set(), []);
+
+    if (localBest) {
+      const nzF = (localBest as Array<{s:number;f:number}>).filter(p => p.f > 0).map(p => p.f);
+      const minFret = nzF.length > 0 ? Math.min(...nzF) : 0;
+      const overall = -localCov * 1000 + localScore + win * 2;
+      if (localCov > best.coverage || (localCov === best.coverage && overall < best.score)) {
+        const frets: Array<number|null> = Array(6).fill(null);
+        for (const p of localBest as Array<{s:number;f:number}>) frets[p.s] = p.f;
+        best = { coverage: localCov, score: overall, frets, baseFret: minFret <= 2 ? 1 : minFret };
       }
     }
   }
-  return result;
+
+  return { frets: best.frets, baseFret: best.baseFret };
 }
 
 export interface NotationLayout {
@@ -259,47 +314,105 @@ export function renderNotation(
       stave.setContext(context).draw();
 
       renderTrackMeasure(VF, context, track, song, mIndex, layout, stave, fg);
-
-      // Guitar tab stave
-      if (showGuitarTab) {
-        const tabStaveY = staveY + TRACK_HEIGHT + 10;
-        const tabStave = new VF.TabStave(staveX, tabStaveY, staveWidth);
-        if (colIdx === 0) tabStave.addClef('tab');
-        tabStave.setStyle({ fillStyle: fg, strokeStyle: fg });
-        tabStave.setContext(context).draw();
-
-        const noteStartX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure);
-        const mStart = mIndex * layout.beatsPerMeasure;
-        const mEnd = (mIndex + 1) * layout.beatsPerMeasure;
-        const notesInMeasure = track.notes.filter(n =>
-          !n.isRest && n.start >= mStart - 0.001 && n.start < mEnd - 0.001
-        );
-
-        const byBeat = new Map<number, NoteData[]>();
-        notesInMeasure.forEach(n => {
-          const k = Math.round(n.start * 100) / 100;
-          if (!byBeat.has(k)) byBeat.set(k, []);
-          byBeat.get(k)!.push(n);
-        });
-
-        [...byBeat.entries()].sort(([a], [b]) => a - b).forEach(([beat, chord]) => {
-          const beatInMeasure = beat - mStart;
-          const positions = pitchesToTabPositions(chord.map(n => n.pitch));
-          if (positions.length === 0) return;
-          try {
-            const tabNote = new VF.TabNote({ positions, duration: durToVF(chord[0].duration) });
-            tabNote.setStyle({ fillStyle: fg, strokeStyle: fg });
-            const tc = new VF.TickContext();
-            tc.addTickable(tabNote);
-            const desiredX = noteStartX + beatInMeasure * PIXELS_PER_BEAT;
-            tc.preFormat().setX(desiredX - tabStave.getNoteStartX() - VEXFLOW_NOTE_OFFSET);
-            tabNote.setStave(tabStave);
-            tabNote.setContext(context).draw();
-          } catch (_) {}
-        });
-      }
     }
   });
+}
+
+// ── Canvas chord diagram drawing ─────────────────────────────────────────────
+const DIAG_W = 66;
+const DIAG_H = 88;
+const DIAG_FRET_ROWS = 4;
+
+function drawChordDiagramOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  diagram: ChordDiagramResult,
+  originX: number,  // top-left x, already scaled
+  originY: number,  // top-left y, already scaled
+  scale: number
+) {
+  const { frets, baseFret } = diagram;
+  const lPad = (baseFret > 1 ? 15 : 5) * scale;
+  const rPad = 4 * scale;
+  const tPad = 20 * scale;
+  const strW = DIAG_W * scale - lPad - rPad;
+  const strSpacing = strW / 5;
+  const strXs = Array.from({ length: 6 }, (_, i) => originX + lPad + i * strSpacing);
+  const fretSpacing = (DIAG_H * scale - tPad - 6 * scale) / DIAG_FRET_ROWS;
+  const fretLineYs = Array.from({ length: DIAG_FRET_ROWS + 1 }, (_, i) => originY + tPad + i * fretSpacing);
+
+  // Diagram left-to-right: low E (index 5) → high e (index 0)
+  const diagOrder = [5, 4, 3, 2, 1, 0];
+
+  ctx.save();
+
+  // Fret lines
+  fretLineYs.forEach((fy, i) => {
+    ctx.beginPath();
+    ctx.lineWidth = (i === 0 && baseFret === 1 ? 3 : 0.8) * scale;
+    ctx.globalAlpha = i === 0 && baseFret === 1 ? 0.85 : 0.55;
+    ctx.strokeStyle = '#000';
+    ctx.moveTo(strXs[0], fy);
+    ctx.lineTo(strXs[5], fy);
+    ctx.stroke();
+  });
+
+  // String lines
+  strXs.forEach(sx => {
+    ctx.beginPath();
+    ctx.lineWidth = 0.8 * scale;
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = '#000';
+    ctx.moveTo(sx, originY + tPad);
+    ctx.lineTo(sx, fretLineYs[DIAG_FRET_ROWS]);
+    ctx.stroke();
+  });
+
+  ctx.globalAlpha = 1;
+
+  // String indicators and finger dots
+  diagOrder.forEach((strIdx, diagPos) => {
+    const fret = frets[strIdx];
+    const sx = strXs[diagPos];
+    const slot = fret != null && fret > 0 ? fret - baseFret : null;
+    const inRange = slot !== null && slot >= 0 && slot < DIAG_FRET_ROWS;
+
+    ctx.font = `${10 * scale}px Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+
+    if (fret === null) {
+      ctx.globalAlpha = 0.45;
+      ctx.fillStyle = '#000';
+      ctx.fillText('×', sx, originY + tPad - 5 * scale);
+    } else if (fret === 0) {
+      ctx.globalAlpha = 0.75;
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = scale;
+      ctx.beginPath();
+      ctx.arc(sx, originY + tPad - 7 * scale, 3 * scale, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    if (inRange) {
+      ctx.globalAlpha = 0.88;
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(sx, fretLineYs[slot!] + fretSpacing / 2, fretSpacing * 0.34, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  // Position label (e.g. "5fr")
+  if (baseFret > 1) {
+    ctx.globalAlpha = 0.65;
+    ctx.fillStyle = '#000';
+    ctx.font = `${7.5 * scale}px Arial, sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(`${baseFret}fr`, originX + lPad - 3 * scale, originY + tPad + fretSpacing * 0.65);
+  }
+
+  ctx.restore();
 }
 
 // Canvas-based render for export (same logic, scaled)
@@ -307,10 +420,11 @@ export function renderNotationToCanvas(
   canvas: HTMLCanvasElement,
   song: SongData,
   scale: number,
-  pageWidth: number
+  pageWidth: number,
+  showGuitarTab = false
 ) {
   const VF = VexFlow;
-  const layout = calcLayout(song, pageWidth, false);
+  const layout = calcLayout(song, pageWidth, showGuitarTab);
   const { measuresPerRow, totalMeasures, notesWidthPerMeasure, beatsPerMeasure, effectiveTrackHeight } = layout;
 
   canvas.width = layout.svgWidth * scale;
@@ -388,6 +502,37 @@ export function renderNotationToCanvas(
       }
     }
   });
+
+  // Draw chord diagrams when guitar tab is on
+  if (showGuitarTab) {
+    const ctx2d = canvas.getContext('2d')!;
+    song.tracks.forEach((track, tIndex) => {
+      const beats = new Map<number, string[]>();
+      track.notes.forEach(n => {
+        if (n.isRest) return;
+        const k = Math.round(n.start * 100) / 100;
+        if (!beats.has(k)) beats.set(k, []);
+        beats.get(k)!.push(n.pitch);
+      });
+
+      beats.forEach((pitches, beatPos) => {
+        const mIndex = Math.floor(beatPos / beatsPerMeasure);
+        const rowIdx = Math.floor(mIndex / measuresPerRow);
+        const colIdx = mIndex % measuresPerRow;
+        const beatInMeasure = beatPos - mIndex * beatsPerMeasure;
+        const beatX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT;
+        const staveY = rowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST;
+        const diagram = pitchesToChordDiagram(pitches);
+        drawChordDiagramOnCanvas(
+          ctx2d,
+          diagram,
+          (beatX - DIAG_W / 2) * scale,
+          (staveY + TRACK_HEIGHT + 10) * scale,
+          scale
+        );
+      });
+    });
+  }
 
   return layout;
 }

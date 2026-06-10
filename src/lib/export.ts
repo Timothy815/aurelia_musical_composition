@@ -74,7 +74,7 @@ export function exportToMidi(song: SongData) {
   a.click();
 }
 
-export function exportToPdf(song: SongData) {
+export function exportToPdf(song: SongData, showGuitarTab = false) {
   const SCALE = 2;
   const PAGE_WIDTH = 900;
 
@@ -82,7 +82,7 @@ export function exportToPdf(song: SongData) {
   canvas.style.cssText = 'position:fixed;left:-9999px;top:0;';
   document.body.appendChild(canvas);
 
-  const layout = renderNotationToCanvas(canvas, song, SCALE, PAGE_WIDTH);
+  const layout = renderNotationToCanvas(canvas, song, SCALE, PAGE_WIDTH, showGuitarTab);
 
   const dataUrl = canvas.toDataURL('image/png');
   document.body.removeChild(canvas);
