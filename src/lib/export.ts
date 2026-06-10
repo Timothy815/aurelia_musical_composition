@@ -1,6 +1,161 @@
 import MidiWriter from 'midi-writer-js';
-import { SongData } from '../types';
+import { SongData, NoteData } from '../types';
 import { renderNotationToCanvas, calcLayout } from './notation';
+
+// ── MusicXML helpers ───────────────────────────────────────────────────────
+
+function xmlEsc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+const KEY_FIFTHS: Record<string, number> = {
+  C: 0, G: 1, D: 2, A: 3, E: 4, B: 5, 'F#': 6,
+  F: -1, Bb: -2, Eb: -3, Ab: -4, Db: -5, Gb: -6,
+};
+
+function parseMusicXMLPitch(pitch: string): { step: string; alter: number; octave: number } {
+  const m = pitch.match(/^([A-G])(#|b)?(\d+)$/);
+  if (!m) return { step: 'C', alter: 0, octave: 4 };
+  return { step: m[1], alter: m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0, octave: parseInt(m[3]) };
+}
+
+function beatsToType(beats: number): { type: string; dots: number } {
+  const MAP: [number, string][] = [
+    [4, 'whole'], [2, 'half'], [1, 'quarter'],
+    [0.5, 'eighth'], [0.25, '16th'], [0.125, '32nd'],
+  ];
+  for (const [d, t] of MAP) {
+    if (Math.abs(beats - d) < 0.02) return { type: t, dots: 0 };
+    if (Math.abs(beats - d * 1.5) < 0.02) return { type: t, dots: 1 };
+  }
+  let best = MAP[0];
+  for (const [d, t] of MAP) {
+    if (Math.abs(beats - d) < Math.abs(beats - best[0])) best = [d, t];
+  }
+  return { type: best[1], dots: 0 };
+}
+
+function noteLines(note: NoteData | null, beats: number, divisions: number, isChord: boolean): string[] {
+  const dur = Math.max(1, Math.round(beats * divisions));
+  const { type, dots } = beatsToType(beats);
+  const out: string[] = [];
+  out.push('      <note>');
+  if (isChord) out.push('        <chord/>');
+  if (!note || note.isRest) {
+    out.push('        <rest/>');
+  } else {
+    const { step, alter, octave } = parseMusicXMLPitch(note.pitch);
+    out.push('        <pitch>');
+    out.push(`          <step>${step}</step>`);
+    if (alter !== 0) out.push(`          <alter>${alter}</alter>`);
+    out.push(`          <octave>${octave}</octave>`);
+    out.push('        </pitch>');
+  }
+  out.push(`        <duration>${dur}</duration>`);
+  out.push(`        <voice>${note?.voice ?? 1}</voice>`);
+  out.push(`        <type>${type}</type>`);
+  for (let i = 0; i < dots; i++) out.push('        <dot/>');
+  out.push('        <staff>1</staff>');
+  if (note?.articulation) {
+    const tag = note.articulation === 'staccato' ? '<staccato/>'
+      : note.articulation === 'accent' ? '<accent/>'
+      : '<tenuto/>';
+    out.push('        <notations><articulations>' + tag + '</articulations></notations>');
+  }
+  out.push('      </note>');
+  return out;
+}
+
+function fillRestsXML(from: number, to: number, divisions: number, out: string[]) {
+  const REST_DURS = [4, 2, 1, 0.5, 0.25, 0.125];
+  let remaining = to - from;
+  while (remaining > 0.02) {
+    const dur = REST_DURS.find(d => d <= remaining + 0.02) ?? REST_DURS[REST_DURS.length - 1];
+    out.push(...noteLines(null, Math.min(dur, remaining), divisions, false));
+    remaining -= dur;
+  }
+}
+
+export function exportToMusicXML(song: SongData) {
+  const DIVISIONS = 4;
+  const bpm = song.timeSignature[0];
+  const out: string[] = [];
+
+  out.push('<?xml version="1.0" encoding="UTF-8"?>');
+  out.push('<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">');
+  out.push('<score-partwise version="3.1">');
+  if (song.title) out.push(`  <work><work-title>${xmlEsc(song.title)}</work-title></work>`);
+  if (song.composer) {
+    out.push('  <identification>');
+    out.push(`    <creator type="composer">${xmlEsc(song.composer)}</creator>`);
+    out.push('    <encoding><software>Aurelia Composer</software></encoding>');
+    out.push('  </identification>');
+  }
+  out.push('  <part-list>');
+  song.tracks.forEach((t, i) =>
+    out.push(`    <score-part id="P${i + 1}"><part-name>${xmlEsc(t.name)}</part-name></score-part>`)
+  );
+  out.push('  </part-list>');
+
+  song.tracks.forEach((track, tIdx) => {
+    out.push(`  <part id="P${tIdx + 1}">`);
+    const maxBeat = track.notes.length > 0
+      ? Math.max(...track.notes.map(n => n.start + n.duration)) : bpm;
+    const numMeasures = Math.max(1, Math.ceil(maxBeat / bpm));
+
+    for (let m = 0; m < numMeasures; m++) {
+      const mStart = m * bpm;
+      const mEnd = mStart + bpm;
+      out.push(`    <measure number="${m + 1}">`);
+      if (m === 0) {
+        out.push('      <attributes>');
+        out.push(`        <divisions>${DIVISIONS}</divisions>`);
+        out.push(`        <key><fifths>${KEY_FIFTHS[song.keySignature ?? 'C'] ?? 0}</fifths></key>`);
+        out.push(`        <time><beats>${song.timeSignature[0]}</beats><beat-type>${song.timeSignature[1]}</beat-type></time>`);
+        out.push('        <clef><sign>G</sign><line>2</line></clef>');
+        out.push('      </attributes>');
+        out.push(`      <direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${song.tempo}</per-minute></metronome></direction-type><sound tempo="${song.tempo}"/></direction>`);
+      }
+
+      const mNotes = track.notes
+        .filter(n => n.start >= mStart - 0.01 && n.start < mEnd - 0.01)
+        .sort((a, b) => a.start - b.start);
+
+      // Group simultaneous notes into chords
+      const groups: NoteData[][] = [];
+      for (let i = 0; i < mNotes.length; ) {
+        const grp: NoteData[] = [mNotes[i]];
+        while (i + 1 < mNotes.length && Math.abs(mNotes[i + 1].start - mNotes[i].start) < 0.02) {
+          grp.push(mNotes[++i]);
+        }
+        groups.push(grp);
+        i++;
+      }
+
+      let cursor = mStart;
+      for (const grp of groups) {
+        const gStart = grp[0].start;
+        if (gStart > cursor + 0.02) fillRestsXML(cursor, gStart, DIVISIONS, out);
+        grp.forEach((note, idx) => out.push(...noteLines(note, note.duration, DIVISIONS, idx > 0)));
+        cursor = gStart + grp[0].duration;
+      }
+      if (cursor < mEnd - 0.02) fillRestsXML(cursor, mEnd, DIVISIONS, out);
+
+      out.push('    </measure>');
+    }
+    out.push('  </part>');
+  });
+
+  out.push('</score-partwise>');
+
+  const blob = new Blob([out.join('\n')], { type: 'application/vnd.recordare.musicxml+xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = safeFilename(song.title, 'musicxml');
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function safeFilename(title: string | undefined, ext: string): string {
   const base = (title ?? 'composition')

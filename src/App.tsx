@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useReducer } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useReducer, useRef } from 'react';
 import { Chord } from '@tonaljs/tonal';
 import { Play, Square, Plus, RotateCcw, RotateCw, Copy, Repeat } from 'lucide-react';
 import { SongData, TrackData, NoteData, InstrumentPreset, DynamicMarking, ArticulationMarking } from './types';
@@ -7,7 +7,7 @@ import { audio } from './lib/audio';
 import { Keyboard } from './components/Keyboard';
 import { Fretboard } from './components/Fretboard';
 import { Notation } from './components/Notation';
-import { exportToMidi, exportToPdf, saveFile, loadFile } from './lib/export';
+import { exportToMidi, exportToPdf, exportToMusicXML, saveFile, loadFile } from './lib/export';
 
 // ── History reducer for undo/redo ──────────────────────────────────────────
 type HistoryState = { past: SongData[]; present: SongData; future: SongData[] };
@@ -79,6 +79,12 @@ function transposeSong(song: SongData, semitones: number): SongData {
   };
 }
 
+// ── MIDI helpers ──────────────────────────────────────────────────────────
+const MIDI_NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+function midiNoteToString(n: number): string {
+  return `${MIDI_NOTE_NAMES[n % 12]}${Math.floor(n / 12) - 1}`;
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 const KEY_SIGNATURES = ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'F', 'Bb', 'Eb', 'Ab', 'Db', 'Gb'];
 const INSTRUMENT_LABELS: Record<InstrumentPreset, string> = {
@@ -129,6 +135,22 @@ export default function App() {
   const [selectedDynamic, setSelectedDynamic] = useState<DynamicMarking | null>(null);
   const [selectedArticulation, setSelectedArticulation] = useState<ArticulationMarking | null>(null);
 
+  // MIDI recording state
+  const [midiEnabled, setMidiEnabled] = useState(false);
+  const [midiDeviceName, setMidiDeviceName] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [countInDisplay, setCountInDisplay] = useState(0);
+  const [quantGrid, setQuantGrid] = useState(4); // 4 = 16th note, 2 = 8th, 8 = 32nd
+  // Refs for MIDI handler (avoids stale closures — refs always hold latest values)
+  const isRecordingRef = useRef(false);
+  const recordingStartTimeRef = useRef<number | null>(null);
+  const quantGridRef = useRef(4);
+  const songTempoRef = useRef(song.tempo);
+  const pendingMidiNotes = useRef<Map<number, number>>(new Map()); // midiNum → startMs
+  const recordedMidiNotes = useRef<NoteData[]>([]);
+  const handleNoteOnRef = useRef<(p: string) => void>(() => {});
+  const handleNoteOffRef = useRef<(p: string) => void>(() => {});
+
   useEffect(() => {
     const initFn = () => { audio.init().catch(console.error); };
     // Start init on any user gesture so audio is ready before the first note
@@ -144,6 +166,45 @@ export default function App() {
       window.removeEventListener('touchstart', initFn);
     };
   }, []);
+
+  // Keep MIDI refs in sync with latest render state
+  useEffect(() => { songTempoRef.current = song.tempo; }, [song.tempo]);
+  useEffect(() => { quantGridRef.current = quantGrid; }, [quantGrid]);
+
+  // Stable MIDI message handler — reads mutable state from refs
+  const midiMessageHandler = useCallback((e: MIDIMessageEvent) => {
+    const data = e.data;
+    const status = data[0] & 0xF0;
+    const midiNote = data[1];
+    const velocity = data[2];
+    const pitch = midiNoteToString(midiNote);
+    const isOn = status === 0x90 && velocity > 0;
+    const isOff = status === 0x80 || (status === 0x90 && velocity === 0);
+
+    if (isOn) {
+      handleNoteOnRef.current(pitch);
+      if (isRecordingRef.current && recordingStartTimeRef.current !== null) {
+        pendingMidiNotes.current.set(midiNote, performance.now());
+      }
+    } else if (isOff) {
+      handleNoteOffRef.current(pitch);
+      if (isRecordingRef.current && recordingStartTimeRef.current !== null) {
+        const startMs = pendingMidiNotes.current.get(midiNote);
+        if (startMs !== undefined) {
+          pendingMidiNotes.current.delete(midiNote);
+          const tempo = songTempoRef.current;
+          const grid = quantGridRef.current;
+          const startBeats = ((startMs - recordingStartTimeRef.current!) / 1000) * (tempo / 60);
+          const endBeats = ((performance.now() - recordingStartTimeRef.current!) / 1000) * (tempo / 60);
+          const qStart = Math.round(startBeats * grid) / grid;
+          const qDur = Math.max(1 / grid, Math.round((endBeats - startBeats) * grid) / grid);
+          recordedMidiNotes.current.push({
+            id: generateId(), pitch, start: qStart, duration: qDur, isRest: false, voice: 1
+          });
+        }
+      }
+    }
+  }, []); // stable — all mutable values read from refs
 
   const combinedNotes = useMemo(() => {
     const c = new Set(activeNotes);
@@ -190,6 +251,9 @@ export default function App() {
     setActiveNotes(prev => { const n = new Set(prev); n.delete(pitch); return n; });
     audio.stopNoteRealtime(pitch);
   };
+  // Keep refs pointing to latest handlers for MIDI callback
+  handleNoteOnRef.current = handleNoteOn;
+  handleNoteOffRef.current = handleNoteOff;
 
   const handleAppendToScore = useCallback(() => {
     if (activeNotes.size === 0 && !isRest) return;
@@ -224,6 +288,106 @@ export default function App() {
     setActiveNotes(new Set());
     setSelectedNoteIds(new Set(newIds));
   }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSong, setSelectedNoteIds]);
+
+  const initMidi = useCallback(async () => {
+    if (!('requestMIDIAccess' in navigator)) {
+      alert('Web MIDI is not supported in this browser. Use Chrome or Edge.');
+      return;
+    }
+    try {
+      await audio.init();
+      const access = await navigator.requestMIDIAccess({ sysex: false });
+      access.inputs.forEach(input => { input.onmidimessage = midiMessageHandler; });
+      access.onstatechange = (e) => {
+        const port = (e as MIDIConnectionEvent).port;
+        if (port.type === 'input' && port.state === 'connected') {
+          (port as MIDIInput).onmidimessage = midiMessageHandler;
+          setMidiDeviceName(port.name ?? 'Unknown');
+        }
+      };
+      const inputs: MIDIInput[] = [];
+      access.inputs.forEach(i => inputs.push(i));
+      setMidiEnabled(true);
+      setMidiDeviceName(inputs[0]?.name ?? (inputs.length === 0 ? 'No device found' : 'Connected'));
+    } catch {
+      alert('MIDI access denied. Allow MIDI access in browser settings and try again.');
+    }
+  }, [midiMessageHandler]);
+
+  const startRecording = useCallback(async () => {
+    if (!midiEnabled) return;
+    await audio.init();
+    recordedMidiNotes.current = [];
+    pendingMidiNotes.current.clear();
+    isRecordingRef.current = false;
+
+    const COUNT_IN = 2;
+    const beatMs = (60 / song.tempo) * 1000;
+    audio.startCountIn(song.tempo, song.timeSignature);
+
+    let remaining = COUNT_IN;
+    setCountInDisplay(remaining);
+
+    const tick = () => {
+      remaining--;
+      setCountInDisplay(remaining);
+      if (remaining > 0) {
+        setTimeout(tick, beatMs);
+      } else {
+        setCountInDisplay(0);
+        recordingStartTimeRef.current = performance.now();
+        isRecordingRef.current = true;
+        setIsRecording(true);
+      }
+    };
+    setTimeout(tick, beatMs);
+  }, [midiEnabled, song.tempo, song.timeSignature]);
+
+  const stopRecording = useCallback(() => {
+    const now = performance.now();
+    const startTime = recordingStartTimeRef.current;
+    isRecordingRef.current = false;
+    setIsRecording(false);
+    setCountInDisplay(0);
+    recordingStartTimeRef.current = null;
+
+    // Flush any notes still held at stop time
+    if (startTime !== null) {
+      pendingMidiNotes.current.forEach((startMs, midiNote) => {
+        const pitch = midiNoteToString(midiNote);
+        const tempo = songTempoRef.current;
+        const grid = quantGridRef.current;
+        const startBeats = ((startMs - startTime) / 1000) * (tempo / 60);
+        const endBeats = ((now - startTime) / 1000) * (tempo / 60);
+        const qStart = Math.round(startBeats * grid) / grid;
+        const qDur = Math.max(1 / grid, Math.round((endBeats - startBeats) * grid) / grid);
+        recordedMidiNotes.current.push({
+          id: generateId(), pitch, start: qStart, duration: qDur, isRest: false, voice: 1
+        });
+        audio.stopNoteRealtime(pitch);
+      });
+    }
+    pendingMidiNotes.current.clear();
+
+    // Stop transport; restore metronome to its pre-recording state
+    audio.stop();
+    audio.setMetronome(metronomeStatus, song.timeSignature);
+
+    // Append recorded notes to first track after existing content
+    if (recordedMidiNotes.current.length > 0) {
+      const notes = [...recordedMidiNotes.current].sort((a, b) => a.start - b.start);
+      setSong(prev => {
+        const track = prev.tracks[0];
+        const existingMax = track.notes.length > 0
+          ? Math.max(...track.notes.map(n => n.start + n.duration)) : 0;
+        const shifted = notes.map(n => ({ ...n, id: generateId(), start: n.start + existingMax }));
+        const newTracks = [...prev.tracks];
+        newTracks[0] = { ...track, notes: [...track.notes, ...shifted] };
+        return { ...prev, tracks: newTracks };
+      });
+      recordedMidiNotes.current = [];
+    }
+  }, [metronomeStatus, song.timeSignature, setSong]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -488,6 +652,49 @@ export default function App() {
           </button>
 
           <div className="w-px h-5 bg-[#1F1F21] mx-1" />
+
+          {/* MIDI Recording */}
+          {!midiEnabled ? (
+            <button
+              onClick={initMidi}
+              className="flex items-center gap-1 px-2 py-1 text-[10px] rounded border border-[#333] text-[#8E8E93] hover:text-white hover:border-[#555] transition-colors uppercase tracking-wider"
+              title="Connect MIDI keyboard"
+            >MIDI</button>
+          ) : (
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] text-[#555] max-w-[72px] truncate" title={midiDeviceName ?? ''}>
+                {midiDeviceName ?? 'MIDI'}
+              </span>
+              {countInDisplay > 0 ? (
+                <span className="text-[13px] font-bold text-[#D4AF37] w-6 text-center">{countInDisplay}</span>
+              ) : isRecording ? (
+                <button
+                  onClick={stopRecording}
+                  className="flex items-center gap-1 px-2 py-1 text-[10px] rounded border border-red-500 text-red-400 bg-red-500/10 animate-pulse uppercase tracking-wider"
+                >&#9632; Stop</button>
+              ) : (
+                <>
+                  <button
+                    onClick={startRecording}
+                    className="flex items-center gap-1 px-2 py-1 text-[10px] rounded border border-red-700 text-red-400 hover:border-red-500 hover:text-red-300 uppercase tracking-wider transition-colors"
+                    title="Record MIDI (2-beat count-in)"
+                  >&#9679; Rec</button>
+                  <select
+                    value={quantGrid}
+                    onChange={e => setQuantGrid(Number(e.target.value))}
+                    className="bg-[#1A1A1C] border border-[#333] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none cursor-pointer"
+                    title="Quantization grid"
+                  >
+                    <option value={2}>Q 1/8</option>
+                    <option value={4}>Q 1/16</option>
+                    <option value={8}>Q 1/32</option>
+                  </select>
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="w-px h-5 bg-[#1F1F21] mx-1" />
           <button
             onClick={() => saveFile(song)}
             className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded"
@@ -505,6 +712,9 @@ export default function App() {
           <div className="w-px h-5 bg-[#1F1F21] mx-1" />
           <button onClick={() => exportToPdf(song, showGuitarTab)} className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded">
             PDF
+          </button>
+          <button onClick={() => exportToMusicXML(song)} className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded" title="Export MusicXML for Sibelius, MuseScore, Dorico">
+            MXL
           </button>
           <button onClick={() => exportToMidi(song)} className="px-3 py-1.5 bg-[#D4AF37] hover:bg-[#C19E30] text-[#0A0A0B] text-[10px] font-bold uppercase tracking-widest transition-colors rounded">
             MIDI

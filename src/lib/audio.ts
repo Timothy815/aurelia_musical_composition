@@ -175,6 +175,15 @@ class AudioEngine {
     }
   }
 
+  startCountIn(tempo: number, timeSignature: number[]) {
+    if (!this.initialized) return;
+    Tone.Transport.cancel(0);
+    Tone.Transport.bpm.value = tempo;
+    Tone.Transport.timeSignature = timeSignature;
+    this.setMetronome(true, timeSignature);
+    Tone.Transport.start();
+  }
+
   scheduleSong(song: SongData, loopEnabled?: boolean, loopStart?: number, loopEnd?: number) {
     Tone.Transport.cancel(0);
     Tone.Transport.bpm.value = song.tempo;

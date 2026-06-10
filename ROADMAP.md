@@ -45,12 +45,12 @@ increment: implement, verify, commit, then move to the next.
 
 ## Tier 3 — Larger lifts, power-user features
 
-- [ ] **Real-time MIDI input recording**
+- [x] **Real-time MIDI input recording**
   Use the Web MIDI API to let a connected keyboard record notes directly
   into the score in Score Mode. Requires a record button, a count-in, and
   quantisation controls.
 
-- [ ] **MusicXML export**
+- [x] **MusicXML export**
   Export the score as MusicXML so it can be opened in Sibelius, Finale,
   MuseScore, or Dorico for further editing. The de-facto interchange format
   for notation software.
