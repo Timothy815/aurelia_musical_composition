@@ -256,7 +256,7 @@ export default function App() {
             </span>
           </div>
           <button 
-            onClick={() => exportToPdf('notation-render-container')}
+            onClick={() => exportToPdf(song)}
             className="px-4 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors"
           >
             Export PDF
