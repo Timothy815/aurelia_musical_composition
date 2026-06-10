@@ -156,6 +156,9 @@ export default function App() {
       newTracks[0] = { ...track, notes: newNotes };
       return { ...prev, tracks: newTracks };
     });
+
+    activeNotes.forEach(pitch => audio.stopNoteRealtime(pitch));
+    setActiveNotes(new Set());
   }, [activeNotes, isRest, selectedDuration, isDotted]);
 
   useEffect(() => {
@@ -188,13 +191,15 @@ export default function App() {
             <span 
               className={cn("cursor-pointer", !playMode ? "text-[#D4AF37] border-b border-[#D4AF37] pb-1" : "hover:text-white")} 
               onClick={() => {
+                activeNotes.forEach(pitch => audio.stopNoteRealtime(pitch));
                 setPlayMode(false);
                 setActiveNotes(new Set());
               }}
             >Score Mode</span>
-            <span 
-              className={cn("cursor-pointer", playMode ? "text-[#D4AF37] border-b border-[#D4AF37] pb-1" : "hover:text-white")} 
+            <span
+              className={cn("cursor-pointer", playMode ? "text-[#D4AF37] border-b border-[#D4AF37] pb-1" : "hover:text-white")}
               onClick={() => {
+                activeNotes.forEach(pitch => audio.stopNoteRealtime(pitch));
                 setPlayMode(true);
                 setActiveNotes(new Set());
               }}
@@ -390,8 +395,11 @@ export default function App() {
                <div className="flex justify-between items-center mb-3">
                  <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666]">Active Notes</h2>
                  {activeNotes.size > 0 && (
-                   <button 
-                     onClick={() => setActiveNotes(new Set())}
+                   <button
+                     onClick={() => {
+                       activeNotes.forEach(pitch => audio.stopNoteRealtime(pitch));
+                       setActiveNotes(new Set());
+                     }}
                      className="text-[10px] text-red-500 hover:text-red-400 uppercase tracking-wider font-bold"
                    >
                      Clear
