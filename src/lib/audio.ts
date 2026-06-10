@@ -23,7 +23,8 @@ class AudioEngine {
   trackSynths: Map<string, Tone.PolySynth> = new Map();
   realtimeNotes = new Set<string>();
   private pendingReleases = new Set<string>();
-  private noteSynths = new Map<string, Tone.Synth>();
+  // Native Web Audio nodes per pitch — direct gain control guarantees immediate silence
+  private noteNodes = new Map<string, { osc: OscillatorNode; gain: GainNode }>();
   private initPromise: Promise<void> | null = null;
 
   onNotePlay?: (pitch: string) => void;
@@ -87,21 +88,24 @@ class AudioEngine {
       this.pendingReleases.delete(pitch);
       return;
     }
-    const existing = this.noteSynths.get(pitch);
-    if (existing) {
-      try { existing.dispose(); } catch (_) {}
-      this.noteSynths.delete(pitch);
-    }
+    this._killRealtimeNote(pitch);
     this.realtimeNotes.add(pitch);
     if (this.sampler && this.sampler.loaded) {
       this.sampler.triggerAttack(pitch);
     } else {
-      const synth = new Tone.Synth({
-        oscillator: { type: 'triangle' as any },
-        envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 1 }
-      }).toDestination();
-      this.noteSynths.set(pitch, synth);
-      synth.triggerAttack(pitch);
+      // Use raw Web Audio API — Tone.Synth.dispose() is not reliable for immediate silence
+      const ctx = Tone.context.rawContext as AudioContext;
+      const freq = (Tone.Frequency(pitch) as any).toFrequency() as number;
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.01);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime);
+      this.noteNodes.set(pitch, { osc, gain });
     }
   }
 
@@ -112,12 +116,25 @@ class AudioEngine {
     }
     this.pendingReleases.delete(pitch);
     this.realtimeNotes.delete(pitch);
-    const synth = this.noteSynths.get(pitch);
-    if (synth) {
-      try { synth.dispose(); } catch (_) {}
-      this.noteSynths.delete(pitch);
-    }
+    this._killRealtimeNote(pitch);
     if (this.sampler?.loaded) this.sampler.triggerRelease(pitch);
+  }
+
+  private _killRealtimeNote(pitch: string) {
+    const nodes = this.noteNodes.get(pitch);
+    if (nodes) {
+      const ctx = Tone.context.rawContext as AudioContext;
+      const now = ctx.currentTime;
+      nodes.gain.gain.cancelScheduledValues(now);
+      nodes.gain.gain.setTargetAtTime(0, now, 0.003);
+      const { osc, gain } = nodes;
+      setTimeout(() => {
+        try { osc.stop(); } catch (_) {}
+        try { osc.disconnect(); } catch (_) {}
+        try { gain.disconnect(); } catch (_) {}
+      }, 100);
+      this.noteNodes.delete(pitch);
+    }
   }
 
   playNotePreview(pitch: string, preset?: InstrumentPreset) {
