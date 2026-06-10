@@ -185,7 +185,15 @@ export function Notation({
       e.preventDefault();
       if (selectedNoteIds.size === 0) return;
       onUpdateSong(prev => {
-        let changed = false;
+        const selectedNotes = prev.tracks.flatMap(t => t.notes).filter(n => selectedNoteIds.has(n.id));
+        // All notes must be able to move — if any hit the boundary, hold the whole chord
+        const canAllMove = selectedNotes.every(n => {
+          const idx = PITCHES.indexOf(n.pitch);
+          if (idx === -1) return false;
+          const next = e.key === 'ArrowUp' ? idx - 1 : idx + 1;
+          return next >= 0 && next < PITCHES.length;
+        });
+        if (!canAllMove) return prev;
         const newTracks = prev.tracks.map(t => ({
           ...t,
           notes: t.notes.map(n => {
@@ -193,13 +201,11 @@ export function Notation({
             const idx = PITCHES.indexOf(n.pitch);
             if (idx === -1) return n;
             const next = e.key === 'ArrowUp' ? idx - 1 : idx + 1;
-            if (next < 0 || next >= PITCHES.length) return n;
-            changed = true;
             if (onPlayNote && !n.isRest) onPlayNote(PITCHES[next]);
             return { ...n, pitch: PITCHES[next] };
           })
         }));
-        return changed ? { ...prev, tracks: newTracks } : prev;
+        return { ...prev, tracks: newTracks };
       });
       return;
     }
