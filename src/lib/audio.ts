@@ -23,8 +23,8 @@ class AudioEngine {
   trackSynths: Map<string, Tone.PolySynth> = new Map();
   realtimeNotes = new Set<string>();
   private pendingReleases = new Set<string>();
-  // Native Web Audio nodes per pitch — direct gain control guarantees immediate silence
-  private noteNodes = new Map<string, { osc: OscillatorNode; gain: GainNode }>();
+  // Dedicated synth for interactive key presses — short release prevents stuck-note tails
+  private realtimeSynth: Tone.PolySynth | null = null;
   private initPromise: Promise<void> | null = null;
 
   onNotePlay?: (pitch: string) => void;
@@ -35,6 +35,11 @@ class AudioEngine {
     if (!this.initPromise) {
       this.initPromise = (async () => {
         await Tone.start();
+
+        this.realtimeSynth = new Tone.PolySynth(Tone.Synth, {
+          oscillator: { type: 'triangle' as any },
+          envelope: { attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.05 }
+        }).toDestination();
 
         this.fallbackSynth = new Tone.PolySynth(Tone.Synth, {
           oscillator: { type: 'triangle' as any },
@@ -57,7 +62,7 @@ class AudioEngine {
             A6: "A6.mp3", C7: "C7.mp3", "D#7": "Ds7.mp3", "F#7": "Fs7.mp3",
             A7: "A7.mp3", C8: "C8.mp3"
           },
-          release: 0.5,
+          release: 1,
           baseUrl: "https://tonejs.github.io/audio/salamander/",
         }).toDestination();
 
@@ -88,21 +93,12 @@ class AudioEngine {
       this.pendingReleases.delete(pitch);
       return;
     }
-    this._killRealtimeNote(pitch);
+    // If the note is already tracked, release it first to avoid double-attack
+    if (this.realtimeNotes.has(pitch)) {
+      this.realtimeSynth?.triggerRelease(pitch);
+    }
     this.realtimeNotes.add(pitch);
-    // Always use raw Web Audio nodes — sampler has a 1-second release tail that sounds "stuck"
-    const ctx = Tone.context.rawContext as AudioContext;
-    const freq = (Tone.Frequency(pitch) as any).toFrequency() as number;
-    const osc = ctx.createOscillator();
-    osc.type = 'triangle';
-    osc.frequency.value = freq;
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0, ctx.currentTime);
-    gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.01);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(ctx.currentTime);
-    this.noteNodes.set(pitch, { osc, gain });
+    this.realtimeSynth!.triggerAttack(pitch);
   }
 
   stopNoteRealtime(pitch: string) {
@@ -112,25 +108,7 @@ class AudioEngine {
     }
     this.pendingReleases.delete(pitch);
     this.realtimeNotes.delete(pitch);
-    this._killRealtimeNote(pitch);
-  }
-
-  private _killRealtimeNote(pitch: string) {
-    const nodes = this.noteNodes.get(pitch);
-    if (nodes) {
-      const ctx = Tone.context.rawContext as AudioContext;
-      const now = ctx.currentTime;
-      nodes.gain.gain.cancelScheduledValues(now);
-      nodes.gain.gain.setValueAtTime(0, now);
-      // Disconnect immediately to cut output from audio graph
-      try { nodes.gain.disconnect(); } catch (_) {}
-      const { osc } = nodes;
-      setTimeout(() => {
-        try { osc.stop(); } catch (_) {}
-        try { osc.disconnect(); } catch (_) {}
-      }, 20);
-      this.noteNodes.delete(pitch);
-    }
+    this.realtimeSynth?.triggerRelease(pitch);
   }
 
   playNotePreview(pitch: string, preset?: InstrumentPreset) {
