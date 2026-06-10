@@ -1,6 +1,10 @@
 import * as Tone from 'tone';
 import { SongData, InstrumentPreset } from '../types';
 
+const DYNAMIC_VELOCITY: Record<string, number> = {
+  pp: 0.15, p: 0.3, mp: 0.5, mf: 0.65, f: 0.8, ff: 1.0,
+};
+
 const PRESETS: Record<InstrumentPreset, object> = {
   piano:   { oscillator: { type: 'triangle' },  envelope: { attack: 0.01,  decay: 0.3,  sustain: 0.2, release: 1    } },
   guitar:  { oscillator: { type: 'triangle' },  envelope: { attack: 0.005, decay: 0.25, sustain: 0.1, release: 0.6  } },
@@ -201,9 +205,11 @@ class AudioEngine {
         const sixteenths = Math.round((note.start % 1) * 4);
         const startTime = `${bars}:${beats}:${sixteenths}`;
         const durationSecs = note.duration * (60 / song.tempo);
+        const velocity = DYNAMIC_VELOCITY[note.dynamic ?? 'mf'] ?? 0.65;
+        const playDuration = note.articulation === 'staccato' ? durationSecs * 0.45 : durationSecs;
 
         Tone.Transport.schedule((time) => {
-          instrument.triggerAttackRelease(note.pitch, durationSecs, time);
+          instrument.triggerAttackRelease(note.pitch, playDuration, time, velocity);
           Tone.Draw.schedule(() => { this.onNotePlay?.(note.pitch); }, time);
           Tone.Draw.schedule(() => { this.onNoteStop?.(note.pitch); }, time + durationSecs);
         }, startTime);

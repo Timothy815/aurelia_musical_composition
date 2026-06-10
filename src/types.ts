@@ -1,5 +1,8 @@
 export type InstrumentPreset = 'piano' | 'guitar' | 'strings' | 'brass' | 'bass' | 'flute' | 'organ' | 'synth';
 
+export type DynamicMarking = 'pp' | 'p' | 'mp' | 'mf' | 'f' | 'ff';
+export type ArticulationMarking = 'staccato' | 'accent' | 'tenuto';
+
 export interface NoteData {
   id: string;
   pitch: string; // e.g., 'C4', 'C#4'
@@ -7,6 +10,8 @@ export interface NoteData {
   duration: number; // in beats
   isRest?: boolean;
   voice?: 1 | 2;
+  dynamic?: DynamicMarking;
+  articulation?: ArticulationMarking;
 }
 
 export interface TrackData {

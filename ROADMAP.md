@@ -26,17 +26,17 @@ increment: implement, verify, commit, then move to the next.
 
 ## Tier 2 — Medium effort, high value
 
-- [ ] **PDF page layout**
+- [x] **PDF page layout**
   Split long scores across multiple pages with correct stave continuation.
   Currently everything overflows onto one very tall page; anything beyond
   a few measures is unprintable.
 
-- [ ] **Instrument selection per track**
+- [x] **Instrument selection per track**
   Add a simple instrument picker to each track (piano, strings, guitar,
   bass, brass stab — a handful of Tone.js-compatible sample sets).
   Every track currently sounds like piano regardless of intent.
 
-- [ ] **Dynamics & articulations**
+- [x] **Dynamics & articulations**
   Support at minimum: dynamic markings (*pp*, *mp*, *mf*, *f*, *ff*) and
   note-level articulations (staccato, accent, tenuto). Render them in the
   VexFlow stave and apply velocity/duration adjustments during playback.

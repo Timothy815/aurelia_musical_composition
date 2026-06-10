@@ -1,6 +1,6 @@
 import MidiWriter from 'midi-writer-js';
 import { SongData } from '../types';
-import { renderNotationToCanvas } from './notation';
+import { renderNotationToCanvas, calcLayout } from './notation';
 
 function safeFilename(title: string | undefined, ext: string): string {
   const base = (title ?? 'composition')
@@ -86,21 +86,37 @@ export function exportToMidi(song: SongData) {
 export function exportToPdf(song: SongData, showGuitarTab = false) {
   const SCALE = 2;
   const PAGE_WIDTH = 900;
+  // How many layout-pixels of score height fit on one printed page
+  const PAGE_CONTENT_HEIGHT = 660;
 
-  const canvas = document.createElement('canvas');
-  canvas.style.cssText = 'position:fixed;left:-9999px;top:0;';
-  document.body.appendChild(canvas);
+  const layout = calcLayout(song, PAGE_WIDTH, showGuitarTab);
+  const { numRows, effectiveTrackHeight } = layout;
+  const rowHeight = song.tracks.length * effectiveTrackHeight;
+  const rowsPerPage = Math.max(1, Math.floor(PAGE_CONTENT_HEIGHT / rowHeight));
 
-  const layout = renderNotationToCanvas(canvas, song, SCALE, PAGE_WIDTH, showGuitarTab);
-
-  const dataUrl = canvas.toDataURL('image/png');
-  document.body.removeChild(canvas);
+  const pageDataUrls: string[] = [];
+  for (let startRow = 0; startRow < numRows; startRow += rowsPerPage) {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:fixed;left:-9999px;top:0;';
+    document.body.appendChild(canvas);
+    renderNotationToCanvas(canvas, song, SCALE, PAGE_WIDTH, showGuitarTab, startRow, rowsPerPage);
+    pageDataUrls.push(canvas.toDataURL('image/png'));
+    document.body.removeChild(canvas);
+  }
 
   const printWindow = window.open('', '_blank', 'width=1050,height=780');
   if (!printWindow) return;
 
   const scoreTitle = song.title || 'Untitled';
   const composerLine = song.composer ? `<p class="meta by">by ${song.composer}</p>` : '';
+  const metaLine = `<p class="meta">Tempo: ${song.tempo} BPM &nbsp;|&nbsp; ${song.timeSignature[0]}/${song.timeSignature[1]}${song.keySignature && song.keySignature !== 'C' ? ` &nbsp;|&nbsp; Key: ${song.keySignature}` : ''}</p>`;
+
+  const pageBlocks = pageDataUrls.map((url, i) => {
+    const header = i === 0
+      ? `<h1>${scoreTitle}</h1>${composerLine}${metaLine}`
+      : '';
+    return `<div class="page">${header}<img src="${url}" alt="Score page ${i + 1}" /></div>`;
+  }).join('\n');
 
   printWindow.document.write(`<!DOCTYPE html>
 <html>
@@ -133,7 +149,11 @@ export function exportToPdf(song: SongData, showGuitarTab = false) {
     @media print {
       body { background: white; }
       .no-print { display: none; }
-      .page { margin: 0; padding: 12mm; width: 100%; box-shadow: none; }
+      .page {
+        margin: 0; padding: 12mm; width: 100%; box-shadow: none;
+        page-break-after: always; break-after: page;
+      }
+      .page:last-child { page-break-after: auto; break-after: auto; }
     }
   </style>
 </head>
@@ -143,12 +163,7 @@ export function exportToPdf(song: SongData, showGuitarTab = false) {
     <button class="btn-close" onclick="window.close()">Close</button>
     <span style="margin-left:8px;color:#aaa;">Tip: in print dialog choose "Save as PDF", Paper: Letter, Landscape</span>
   </div>
-  <div class="page">
-    <h1>${scoreTitle}</h1>
-    ${composerLine}
-    <p class="meta">Tempo: ${song.tempo} BPM &nbsp;|&nbsp; ${song.timeSignature[0]}/${song.timeSignature[1]}${song.keySignature && song.keySignature !== 'C' ? ` &nbsp;|&nbsp; Key: ${song.keySignature}` : ''}</p>
-    <img src="${dataUrl}" alt="Score" />
-  </div>
+  ${pageBlocks}
 </body>
 </html>`);
 

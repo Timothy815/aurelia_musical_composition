@@ -8,7 +8,7 @@ import {
   TRACK_HEIGHT, TAB_TRACK_HEIGHT_EXTRA,
   pitchesToChordDiagram, ChordDiagramResult,
 } from '../lib/notation';
-import { SongData, NoteData } from '../types';
+import { SongData, NoteData, DynamicMarking, ArticulationMarking, InstrumentPreset } from '../types';
 import { generateId, cn } from '../lib/utils';
 
 const PITCHES = ['B5', 'A5', 'G5', 'F5', 'E5', 'D5', 'C5', 'B4', 'A4', 'G4', 'F4', 'E4', 'D4', 'C4', 'B3', 'A3', 'G3', 'F3', 'E3', 'D3', 'C3', 'B2', 'A2', 'G2', 'F2', 'E2'];
@@ -114,10 +114,12 @@ export function Notation({
   loopEnd,
   chordLabels,
   showGuitarTab = false,
+  currentDynamic,
+  currentArticulation,
 }: {
   song: SongData;
   onUpdateSong: (s: SongData | ((s: SongData) => SongData)) => void;
-  onPlayNote?: (pitch: string) => void;
+  onPlayNote?: (pitch: string, instrument?: InstrumentPreset) => void;
   chordMode: boolean;
   chordNotes: Set<string>;
   selectedDuration: number;
@@ -132,6 +134,8 @@ export function Notation({
   loopEnd?: number;
   chordLabels?: Map<number, string>;
   showGuitarTab?: boolean;
+  currentDynamic?: DynamicMarking | null;
+  currentArticulation?: ArticulationMarking | null;
 }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -176,16 +180,18 @@ export function Notation({
 
     setSelectedNoteIds(new Set());
     const newNotes = [...track.notes];
+    const dyn = currentDynamic ?? undefined;
+    const artic = currentArticulation ?? undefined;
 
     if (isRest) {
       newNotes.push({ id: generateId(), pitch, start: beat, duration: dur, isRest: true });
     } else if (chordNotes.size > 0) {
       Array.from(chordNotes).forEach(cp => {
-        newNotes.push({ id: generateId(), pitch: cp, start: beat, duration: dur, isRest: false, voice: activeVoice ?? 1 });
+        newNotes.push({ id: generateId(), pitch: cp, start: beat, duration: dur, isRest: false, voice: activeVoice ?? 1, dynamic: dyn, articulation: artic });
       });
     } else {
-      newNotes.push({ id: generateId(), pitch, start: beat, duration: dur, isRest: false, voice: activeVoice ?? 1 });
-      if (onPlayNote) onPlayNote(pitch);
+      newNotes.push({ id: generateId(), pitch, start: beat, duration: dur, isRest: false, voice: activeVoice ?? 1, dynamic: dyn, articulation: artic });
+      if (onPlayNote) onPlayNote(pitch, song.tracks[tIndex].instrument);
     }
 
     const newTracks = [...song.tracks];

@@ -186,6 +186,17 @@ function buildStaveNote(VF: any, chordNotes: NoteData[], fg: string): any {
   }
 
   if (dur === 1.5 || dur === 0.75 || dur === 3) sn.addModifier(new VF.Dot(), 0);
+
+  if (!isRest) {
+    const articulation = chordNotes[0]?.articulation;
+    if (articulation) {
+      try {
+        const code = articulation === 'staccato' ? 'a.' : articulation === 'accent' ? 'a>' : 'a-';
+        sn.addModifier(new VF.Articulation(code).setPosition(3), 0);
+      } catch (_) {}
+    }
+  }
+
   sn.setStyle({ fillStyle: fg, strokeStyle: fg });
   return sn;
 }
@@ -274,7 +285,7 @@ export function renderNotation(
 
   const width = availableWidth ?? Math.max(300, (container.parentElement?.clientWidth ?? 900) - 64);
   const layout = calcLayout(song, width, showGuitarTab);
-  const { measuresPerRow, totalMeasures, notesWidthPerMeasure, effectiveTrackHeight } = layout;
+  const { measuresPerRow, totalMeasures, notesWidthPerMeasure, effectiveTrackHeight, beatsPerMeasure } = layout;
 
   const renderer = new VF.Renderer(container as HTMLDivElement, RendererBackends.SVG);
   renderer.resize(layout.svgWidth, layout.svgHeight);
@@ -325,6 +336,35 @@ export function renderNotation(
       }
     }
   });
+
+  // Dynamic markings (second pass — change-only per track, below stave)
+  song.tracks.forEach((track, tIndex) => {
+    const beatDynamics = new Map<number, string>();
+    track.notes.forEach(n => {
+      if (!n.isRest && n.dynamic) {
+        const k = Math.round(n.start * 100) / 100;
+        if (!beatDynamics.has(k)) beatDynamics.set(k, n.dynamic);
+      }
+    });
+    const sorted = [...beatDynamics.entries()].sort(([a], [b]) => a - b);
+    let lastDyn = '';
+    sorted.forEach(([beatPos, dyn]) => {
+      if (dyn === lastDyn) return;
+      lastDyn = dyn;
+      const mIdx = Math.floor(beatPos / beatsPerMeasure);
+      const rowIdx = Math.floor(mIdx / measuresPerRow);
+      const colIdx = mIdx % measuresPerRow;
+      const beatInM = beatPos - mIdx * beatsPerMeasure;
+      const noteX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInM * PIXELS_PER_BEAT;
+      const staveY = rowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST;
+      context.setFont('Times New Roman', 11, 'italic');
+      context.setFillStyle(fg);
+      try { (context as any).fillText(dyn, noteX, staveY + 58); } catch (_) {}
+    });
+  });
+  context.setFont('Arial', 10);
+  context.setFillStyle(fg);
+  context.setStrokeStyle(fg);
 }
 
 // ── Canvas chord diagram drawing ─────────────────────────────────────────────
@@ -424,20 +464,26 @@ function drawChordDiagramOnCanvas(
   ctx.restore();
 }
 
-// Canvas-based render for export (same logic, scaled)
+// Canvas-based render for export (same logic, scaled).
+// startRow / rowsPerPage enable pagination: only the rows in [startRow, startRow+rowsPerPage) are drawn.
 export function renderNotationToCanvas(
   canvas: HTMLCanvasElement,
   song: SongData,
   scale: number,
   pageWidth: number,
-  showGuitarTab = false
+  showGuitarTab = false,
+  startRow = 0,
+  rowsPerPage?: number
 ) {
   const VF = VexFlow;
   const layout = calcLayout(song, pageWidth, showGuitarTab);
-  const { measuresPerRow, totalMeasures, notesWidthPerMeasure, beatsPerMeasure, effectiveTrackHeight } = layout;
+  const { measuresPerRow, totalMeasures, numRows, notesWidthPerMeasure, beatsPerMeasure, effectiveTrackHeight } = layout;
+
+  const endRow = rowsPerPage !== undefined ? Math.min(startRow + rowsPerPage, numRows) : numRows;
+  const rowsOnPage = endRow - startRow;
 
   canvas.width = layout.svgWidth * scale;
-  canvas.height = layout.svgHeight * scale;
+  canvas.height = (STAVE_Y_FIRST + rowsOnPage * song.tracks.length * effectiveTrackHeight + 20) * scale;
 
   const ctx2d = canvas.getContext('2d')!;
   ctx2d.fillStyle = '#ffffff';
@@ -453,13 +499,15 @@ export function renderNotationToCanvas(
   song.tracks.forEach((track, tIndex) => {
     for (let mIndex = 0; mIndex < totalMeasures; mIndex++) {
       const rowIdx = Math.floor(mIndex / measuresPerRow);
+      if (rowIdx < startRow || rowIdx >= endRow) continue;
+      const adjustedRowIdx = rowIdx - startRow;
       const colIdx = mIndex % measuresPerRow;
 
       const staveX = getMeasureStaveX(colIdx, notesWidthPerMeasure) * scale;
       const staveWidth = (colIdx === 0
         ? FIRST_MEASURE_EXTRA + notesWidthPerMeasure
         : BARLINE_PADDING + notesWidthPerMeasure) * scale;
-      const staveY = (rowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST) * scale;
+      const staveY = (adjustedRowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST) * scale;
 
       const stave = new VF.Stave(staveX, staveY, staveWidth);
 
@@ -542,10 +590,12 @@ export function renderNotationToCanvas(
 
         const mIndex = Math.floor(beatPos / beatsPerMeasure);
         const rowIdx = Math.floor(mIndex / measuresPerRow);
+        if (rowIdx < startRow || rowIdx >= endRow) return;
+        const adjustedRowIdx = rowIdx - startRow;
         const colIdx = mIndex % measuresPerRow;
         const beatInMeasure = beatPos - mIndex * beatsPerMeasure;
         const beatX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT;
-        const staveY = rowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST;
+        const staveY = adjustedRowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST;
         const diagram = pitchesToChordDiagram(pitches);
         drawChordDiagramOnCanvas(
           ctx2d,
@@ -557,6 +607,38 @@ export function renderNotationToCanvas(
       });
     });
   }
+
+  // Dynamic markings (change-only per track, below stave)
+  song.tracks.forEach((track, tIndex) => {
+    const beatDynamics = new Map<number, string>();
+    track.notes.forEach(n => {
+      if (!n.isRest && n.dynamic) {
+        const k = Math.round(n.start * 100) / 100;
+        if (!beatDynamics.has(k)) beatDynamics.set(k, n.dynamic);
+      }
+    });
+    const sorted = [...beatDynamics.entries()].sort(([a], [b]) => a - b);
+    let lastDyn = '';
+    sorted.forEach(([beatPos, dyn]) => {
+      if (dyn === lastDyn) return;
+      lastDyn = dyn;
+      const mIdx = Math.floor(beatPos / beatsPerMeasure);
+      const rowIdx = Math.floor(mIdx / measuresPerRow);
+      if (rowIdx < startRow || rowIdx >= endRow) return;
+      const adjustedRowIdx = rowIdx - startRow;
+      const colIdx = mIdx % measuresPerRow;
+      const beatInM = beatPos - mIdx * beatsPerMeasure;
+      const noteX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInM * PIXELS_PER_BEAT;
+      const staveY = adjustedRowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST;
+      ctx2d.save();
+      ctx2d.font = `italic ${10 * scale}px Times New Roman, serif`;
+      ctx2d.fillStyle = '#000000';
+      ctx2d.textAlign = 'left';
+      ctx2d.textBaseline = 'top';
+      ctx2d.fillText(dyn, noteX * scale, (staveY + 58) * scale);
+      ctx2d.restore();
+    });
+  });
 
   return layout;
 }

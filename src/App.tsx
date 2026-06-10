@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useReducer } from 'react';
 import { Chord } from '@tonaljs/tonal';
 import { Play, Square, Plus, RotateCcw, RotateCw, Copy, Repeat } from 'lucide-react';
-import { SongData, TrackData, NoteData, InstrumentPreset } from './types';
+import { SongData, TrackData, NoteData, InstrumentPreset, DynamicMarking, ArticulationMarking } from './types';
 import { generateId, cn } from './lib/utils';
 import { audio } from './lib/audio';
 import { Keyboard } from './components/Keyboard';
@@ -126,6 +126,8 @@ export default function App() {
   const [showGuitarTab, setShowGuitarTab] = useState(false);
   const [clipboard, setClipboard] = useState<{ notes: NoteData[]; trackIds: string[] } | null>(null);
   const [pianoReady, setPianoReady] = useState(false);
+  const [selectedDynamic, setSelectedDynamic] = useState<DynamicMarking | null>(null);
+  const [selectedArticulation, setSelectedArticulation] = useState<ArticulationMarking | null>(null);
 
   useEffect(() => {
     const initFn = () => { audio.init().catch(console.error); };
@@ -208,8 +210,10 @@ export default function App() {
       if (isRest) {
         newNotes.push({ id: newIds[0], pitch: 'B4', start: appendBeat, duration, isRest: true });
       } else {
+        const dyn = selectedDynamic ?? undefined;
+        const artic = selectedArticulation ?? undefined;
         pitchList.forEach((pitch, i) => {
-          newNotes.push({ id: newIds[i], pitch, start: appendBeat, duration, isRest: false, voice: activeVoice });
+          newNotes.push({ id: newIds[i], pitch, start: appendBeat, duration, isRest: false, voice: activeVoice, dynamic: dyn, articulation: artic });
         });
       }
       newTracks[0] = { ...track, notes: newNotes };
@@ -219,7 +223,7 @@ export default function App() {
     activeNotes.forEach(p => audio.stopNoteRealtime(p));
     setActiveNotes(new Set());
     setSelectedNoteIds(new Set(newIds));
-  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, setSong, setSelectedNoteIds]);
+  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSong, setSelectedNoteIds]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -612,7 +616,44 @@ export default function App() {
               >Voice 2</div>
             </div>
 
-            <div className="flex gap-2 mt-2">
+            {/* Dynamics */}
+            <div className="mt-4">
+              <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-2">Dynamics</h2>
+              <div className="flex flex-wrap gap-1">
+                {(['pp', 'p', 'mp', 'mf', 'f', 'ff'] as DynamicMarking[]).map(d => (
+                  <div
+                    key={d}
+                    onClick={() => setSelectedDynamic(prev => prev === d ? null : d)}
+                    className={cn(
+                      "flex-1 min-w-[28px] bg-[#151517] border p-1 flex items-center justify-center cursor-pointer transition-colors select-none rounded text-[10px] font-bold italic",
+                      selectedDynamic === d ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
+                    )}
+                  >{d}</div>
+                ))}
+              </div>
+            </div>
+
+            {/* Articulations */}
+            <div className="mt-3">
+              <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-2">Articulation</h2>
+              <div className="flex gap-1">
+                {([['staccato', '·'], ['accent', '>'], ['tenuto', '—']] as [ArticulationMarking, string][]).map(([a, sym]) => (
+                  <div
+                    key={a}
+                    onClick={() => setSelectedArticulation(prev => prev === a ? null : a)}
+                    className={cn(
+                      "flex-1 bg-[#151517] border p-1.5 flex flex-col items-center justify-center cursor-pointer transition-colors select-none rounded",
+                      selectedArticulation === a ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
+                    )}
+                  >
+                    <span className="text-base leading-none font-bold">{sym}</span>
+                    <span className="text-[8px] uppercase tracking-wide mt-0.5 opacity-60">{a}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-3">
               <div
                 onClick={() => setChordSelectMode(!chordSelectMode)}
                 className={cn("flex-1 bg-[#151517] border p-2 flex items-center justify-center cursor-pointer transition-colors select-none rounded text-[10px] uppercase tracking-wider font-bold",
@@ -769,7 +810,7 @@ export default function App() {
           <Notation
             song={song}
             onUpdateSong={setSong}
-            onPlayNote={(p) => audio.playNotePreview(p)}
+            onPlayNote={(p, inst) => audio.playNotePreview(p, inst)}
             chordMode={playMode}
             chordNotes={activeNotes}
             selectedDuration={selectedDuration}
@@ -784,6 +825,8 @@ export default function App() {
             loopEnd={loopEnd}
             chordLabels={chordLabels}
             showGuitarTab={showGuitarTab}
+            currentDynamic={selectedDynamic}
+            currentArticulation={selectedArticulation}
           />
         </main>
 
