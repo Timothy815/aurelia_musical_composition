@@ -241,9 +241,9 @@ export default function App() {
   }, [handleAppendToScore, selectedNoteIds, song, clipboard, setSong]);
 
   const detectedChords = useMemo(() => {
-    if (activeNotes.size === 0) return [];
-    return Chord.detect([...activeNotes].map((n: string) => n.replace(/[0-9]/g, '')));
-  }, [activeNotes]);
+    if (combinedNotes.size === 0) return [];
+    return Chord.detect([...combinedNotes].map((n: string) => n.replace(/[0-9]/g, '')));
+  }, [combinedNotes]);
 
   return (
     <div className="flex flex-col h-screen bg-[#0A0A0B] text-[#D1D1D1] font-sans overflow-hidden">

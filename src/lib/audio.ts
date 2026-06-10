@@ -21,6 +21,7 @@ class AudioEngine {
   metronomeLoop: Tone.Loop | null = null;
   isMetronomeEnabled = false;
   trackSynths: Map<string, Tone.PolySynth> = new Map();
+  private pendingReleases = new Set<string>();
 
   onNotePlay?: (pitch: string) => void;
   onNoteStop?: (pitch: string) => void;
@@ -74,12 +75,21 @@ class AudioEngine {
 
   playNoteRealtime(pitch: string) {
     if (!this.initialized) return;
+    if (this.pendingReleases.has(pitch)) {
+      // key was released before init completed — skip the attack entirely
+      this.pendingReleases.delete(pitch);
+      return;
+    }
     this.getRealtimeInstrument().triggerAttack(pitch);
   }
 
   stopNoteRealtime(pitch: string) {
-    if (!this.initialized) return;
-    // Release on both instruments: sampler may have loaded between attack and release
+    if (!this.initialized) {
+      // init still in progress — remember not to play this pitch when it resolves
+      this.pendingReleases.add(pitch);
+      return;
+    }
+    this.pendingReleases.delete(pitch);
     this.fallbackSynth?.triggerRelease(pitch);
     if (this.sampler?.loaded) this.sampler.triggerRelease(pitch);
   }
