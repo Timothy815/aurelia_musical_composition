@@ -101,10 +101,10 @@ export function Keyboard({
 
   // Handle WebMIDI
   useEffect(() => {
-    let midiAccess: WebMidi.MIDIAccess | null = null;
+    let midiAccess: any = null;
     let cleanupFuncs: (() => void)[] = [];
 
-    const onMIDIMessage = (event: WebMidi.MIDIMessageEvent) => {
+    const onMIDIMessage = (event: any) => {
         if (!event.data) return;
         const [status, data1, data2] = event.data;
         const command = status >> 4;

@@ -1,15 +1,18 @@
+export type InstrumentPreset = 'piano' | 'strings' | 'brass' | 'bass' | 'flute' | 'organ' | 'synth';
+
 export interface NoteData {
-  id: string; // unique
-  pitch: string; // e.g., 'C4', 'C#4', 'D4'
+  id: string;
+  pitch: string; // e.g., 'C4', 'C#4'
   start: number; // in beats
   duration: number; // in beats
   isRest?: boolean;
+  voice?: 1 | 2;
 }
 
 export interface TrackData {
   id: string;
   name: string;
-  instrument: string;
+  instrument: InstrumentPreset;
   notes: NoteData[];
 }
 
@@ -17,6 +20,7 @@ export interface SongData {
   tempo: number;
   timeSignature: number[]; // e.g., [4, 4]
   tracks: TrackData[];
+  keySignature?: string; // e.g., 'C', 'G', 'F', 'Bb'
 }
 
 export type InputMode = 'compose' | 'chord_builder';
