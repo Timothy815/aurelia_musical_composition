@@ -13,6 +13,7 @@ import { exportToMidi, exportToPdf, saveFile, loadFile } from './lib/export';
 type HistoryState = { past: SongData[]; present: SongData; future: SongData[] };
 type HistoryAction =
   | { type: 'SET'; payload: SongData }
+  | { type: 'PATCH_META'; payload: { title?: string; composer?: string } }
   | { type: 'UNDO' }
   | { type: 'REDO' };
 
@@ -26,6 +27,8 @@ function historyReducer(state: HistoryState, action: HistoryAction): HistoryStat
         future: []
       };
     }
+    case 'PATCH_META':
+      return { ...state, present: { ...state.present, ...action.payload } };
     case 'UNDO':
       if (state.past.length === 0) return state;
       return {
@@ -319,7 +322,20 @@ export default function App() {
       {/* Header */}
       <header className="h-14 border-b border-[#1F1F21] px-6 flex items-center justify-between bg-[#0F0F10] shrink-0">
         <div className="flex items-center gap-8">
-          <h1 className="font-serif italic text-xl text-[#F2F2F2] tracking-wide">Aurelia Composer</h1>
+          <div className="flex flex-col leading-none gap-0.5">
+              <input
+                value={song.title ?? ''}
+                onChange={e => dispatch({ type: 'PATCH_META', payload: { title: e.target.value } })}
+                placeholder="Untitled"
+                className="bg-transparent font-serif italic text-xl text-[#F2F2F2] tracking-wide outline-none border-b border-transparent focus:border-[#D4AF37]/40 w-44 placeholder:text-[#2A2A2A]"
+              />
+              <input
+                value={song.composer ?? ''}
+                onChange={e => dispatch({ type: 'PATCH_META', payload: { composer: e.target.value } })}
+                placeholder="Composer"
+                className="bg-transparent text-[10px] text-[#555] outline-none border-b border-transparent focus:border-[#D4AF37]/40 w-44 placeholder:text-[#1E1E1E] tracking-wider"
+              />
+            </div>
           <div className="flex gap-6 text-[11px] uppercase tracking-[0.15em] text-[#8E8E93]">
             <span
               className={cn("cursor-pointer", !playMode ? "text-[#D4AF37] border-b border-[#D4AF37] pb-1" : "hover:text-white")}

@@ -314,6 +314,15 @@ export function renderNotation(
       stave.setContext(context).draw();
 
       renderTrackMeasure(VF, context, track, song, mIndex, layout, stave, fg);
+
+      if (tIndex === 0) {
+        context.setFont('Arial', 8);
+        context.setFillStyle('#777777');
+        try { (context as any).fillText(String(mIndex + 1), staveX + 2, staveY - 4); } catch (_) {}
+        context.setFont('Arial', 10);
+        context.setFillStyle(fg);
+        context.setStrokeStyle(fg);
+      }
     }
   });
 }
@@ -465,6 +474,16 @@ export function renderNotationToCanvas(
 
       stave.setContext(context).draw();
 
+      if (tIndex === 0) {
+        ctx2d.save();
+        ctx2d.font = `${8 * scale}px Arial, sans-serif`;
+        ctx2d.fillStyle = '#777777';
+        ctx2d.textAlign = 'left';
+        ctx2d.textBaseline = 'alphabetic';
+        ctx2d.fillText(String(mIndex + 1), staveX + 2 * scale, staveY - 4 * scale);
+        ctx2d.restore();
+      }
+
       // Inline note rendering at scale
       const mStart = mIndex * beatsPerMeasure;
       const mEnd = (mIndex + 1) * beatsPerMeasure;
@@ -503,9 +522,8 @@ export function renderNotationToCanvas(
     }
   });
 
-  // Draw chord diagrams when guitar tab is on
+  // Draw chord diagrams when guitar tab is on (chord-change-only)
   if (showGuitarTab) {
-    const ctx2d = canvas.getContext('2d')!;
     song.tracks.forEach((track, tIndex) => {
       const beats = new Map<number, string[]>();
       track.notes.forEach(n => {
@@ -515,7 +533,13 @@ export function renderNotationToCanvas(
         beats.get(k)!.push(n.pitch);
       });
 
-      beats.forEach((pitches, beatPos) => {
+      const sortedBeats = [...beats.entries()].sort(([a], [b]) => a - b);
+      let lastPCKey = '';
+      sortedBeats.forEach(([beatPos, pitches]) => {
+        const pcKey = [...new Set(pitches.map(p => p.replace(/\d+$/, '')))].sort().join(',');
+        if (pcKey === lastPCKey) return;
+        lastPCKey = pcKey;
+
         const mIndex = Math.floor(beatPos / beatsPerMeasure);
         const rowIdx = Math.floor(mIndex / measuresPerRow);
         const colIdx = mIndex % measuresPerRow;

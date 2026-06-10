@@ -17,6 +17,8 @@ export interface TrackData {
 }
 
 export interface SongData {
+  title?: string;
+  composer?: string;
   tempo: number;
   timeSignature: number[]; // e.g., [4, 4]
   tracks: TrackData[];

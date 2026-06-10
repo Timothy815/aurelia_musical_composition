@@ -7,17 +7,17 @@ increment: implement, verify, commit, then move to the next.
 
 ## Tier 1 — Quick wins (small effort, immediate payoff)
 
-- [ ] **Piece title & composer metadata**
+- [x] **Piece title & composer metadata**
   Store a title and composer name on `SongData`. Show them in the score
   header, use the title as the PDF `<h1>` and as the default filename
   for Save/MIDI/PDF exports.
 
-- [ ] **Measure numbers**
+- [x] **Measure numbers**
   Print a small measure number above the first note of each measure
   (every system, or every N measures). Standard in any printed score;
   makes rehearsal references possible.
 
-- [ ] **Chord-change-only diagrams**
+- [x] **Chord-change-only diagrams**
   Only render a chord diagram when the chord differs from the previous
   beat. Avoids the wall-of-boxes problem on repeated chords and makes
   the tab view read like a real lead sheet.

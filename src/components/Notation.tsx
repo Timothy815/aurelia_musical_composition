@@ -469,16 +469,22 @@ export function Notation({
             beats.get(k)!.push(n.pitch);
           });
 
-          return [...beats.entries()].map(([beatPos, pitches]) => {
+          const sortedBeats = [...beats.entries()].sort(([a], [b]) => a - b);
+          let lastPCKey = '';
+          return sortedBeats.flatMap(([beatPos, pitches]) => {
+            const pcKey = [...new Set(pitches.map(p => p.replace(/\d+$/, '')))].sort().join(',');
+            if (pcKey === lastPCKey) return [];
+            lastPCKey = pcKey;
+
             const mIndex = Math.floor(beatPos / beatsPerMeasure);
             const rowIdx = Math.floor(mIndex / measuresPerRow);
             const colIdx = mIndex % measuresPerRow;
-            if (rowIdx >= numRows) return null;
+            if (rowIdx >= numRows) return [];
             const beatInMeasure = beatPos - mIndex * beatsPerMeasure;
             const beatX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT;
             const staveY = rowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST;
             const diagram = pitchesToChordDiagram(pitches);
-            return (
+            return [(
               <div
                 key={`diag-${tIndex}-${beatPos}`}
                 className="absolute pointer-events-none z-20"
@@ -489,7 +495,7 @@ export function Notation({
               >
                 <ChordDiagramSVG {...diagram} fg="#C8C8D0" />
               </div>
-            );
+            )];
           });
         })}
 
