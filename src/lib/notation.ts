@@ -5,6 +5,8 @@ import { SongData, NoteData } from '../types';
 export const PIXELS_PER_BEAT = 60;
 export const FIRST_MEASURE_EXTRA = 110; // px reserved for clef + key sig + time sig (col=0)
 export const BARLINE_PADDING = 10;     // px between left barline and first note in col>0 staves
+// VexFlow adds stave.getNoteStartX() + this value to tc.getX() when rendering notes
+const VEXFLOW_NOTE_OFFSET = 12; // Metrics.get('Stave.padding') = 12
 export const TRACK_HEIGHT = 150;
 export const STAVE_Y_FIRST = 40;
 export const GRID_TOP_OFFSET = 25; // grid overlay starts this many px above stave Y
@@ -140,7 +142,10 @@ function renderTrackMeasure(
       }
       const tc = new VF.TickContext();
       tc.addTickable(sn);
-      tc.preFormat().setX(noteStartX + beatInMeasure * PIXELS_PER_BEAT);
+      // VexFlow adds stave.getNoteStartX() + VEXFLOW_NOTE_OFFSET to tc.getX() when rendering,
+      // so subtract that to land at our desired absolute position.
+      const desiredX = noteStartX + beatInMeasure * PIXELS_PER_BEAT;
+      tc.preFormat().setX(desiredX - stave.getNoteStartX() - VEXFLOW_NOTE_OFFSET);
       sn.setStave(stave);
       sn.setContext(context).draw();
       return sn;
@@ -290,7 +295,8 @@ export function renderNotationToCanvas(
         const sn = buildStaveNote(VF, chord, '#000000');
         const tc = new VF.TickContext();
         tc.addTickable(sn);
-        tc.preFormat().setX(noteStartX + beatInMeasure * PIXELS_PER_BEAT * scale);
+        const desiredX = noteStartX + beatInMeasure * PIXELS_PER_BEAT * scale;
+        tc.preFormat().setX(desiredX - stave.getNoteStartX() - VEXFLOW_NOTE_OFFSET);
         sn.setStave(stave);
         sn.setContext(context).draw();
         if (!chord[0]?.isRest && chord[0]?.duration <= 0.5) beamable.push(sn);
