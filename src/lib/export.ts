@@ -2,6 +2,41 @@ import MidiWriter from 'midi-writer-js';
 import { SongData } from '../types';
 import { renderNotationToCanvas } from './notation';
 
+export function saveFile(song: SongData) {
+  const json = JSON.stringify(song, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'composition.aurelia';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function loadFile(): Promise<SongData> {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.aurelia,.json';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return reject(new Error('No file selected'));
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result as string) as SongData;
+          resolve(data);
+        } catch {
+          reject(new Error('Invalid file format'));
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsText(file);
+    };
+    input.click();
+  });
+}
+
 export function exportToMidi(song: SongData) {
   const tracks = song.tracks.map(t => {
     const track = new MidiWriter.Track();

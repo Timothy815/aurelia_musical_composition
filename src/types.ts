@@ -1,4 +1,4 @@
-export type InstrumentPreset = 'piano' | 'strings' | 'brass' | 'bass' | 'flute' | 'organ' | 'synth';
+export type InstrumentPreset = 'piano' | 'guitar' | 'strings' | 'brass' | 'bass' | 'flute' | 'organ' | 'synth';
 
 export interface NoteData {
   id: string;

@@ -7,7 +7,7 @@ import { audio } from './lib/audio';
 import { Keyboard } from './components/Keyboard';
 import { Fretboard } from './components/Fretboard';
 import { Notation } from './components/Notation';
-import { exportToMidi, exportToPdf } from './lib/export';
+import { exportToMidi, exportToPdf, saveFile, loadFile } from './lib/export';
 
 // ── History reducer for undo/redo ──────────────────────────────────────────
 type HistoryState = { past: SongData[]; present: SongData; future: SongData[] };
@@ -46,7 +46,7 @@ function historyReducer(state: HistoryState, action: HistoryAction): HistoryStat
 // ── Constants ──────────────────────────────────────────────────────────────
 const KEY_SIGNATURES = ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'F', 'Bb', 'Eb', 'Ab', 'Db', 'Gb'];
 const INSTRUMENT_LABELS: Record<InstrumentPreset, string> = {
-  piano: 'Piano', strings: 'Strings', brass: 'Brass',
+  piano: 'Piano', guitar: 'Guitar', strings: 'Strings', brass: 'Brass',
   bass: 'Bass', flute: 'Flute', organ: 'Organ', synth: 'Synth'
 };
 
@@ -359,6 +359,21 @@ export default function App() {
             </div>
           )}
 
+          <div className="w-px h-5 bg-[#1F1F21] mx-1" />
+          <button
+            onClick={() => saveFile(song)}
+            className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded"
+            title="Save composition (.aurelia)"
+          >
+            Save
+          </button>
+          <button
+            onClick={() => loadFile().then(data => { dispatch({ type: 'SET', payload: data }); setSelectedNoteIds(new Set()); })}
+            className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded"
+            title="Open composition (.aurelia or .json)"
+          >
+            Open
+          </button>
           <div className="w-px h-5 bg-[#1F1F21] mx-1" />
           <button onClick={() => exportToPdf(song)} className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded">
             PDF

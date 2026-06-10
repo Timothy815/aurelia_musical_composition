@@ -2,13 +2,14 @@ import * as Tone from 'tone';
 import { SongData, InstrumentPreset } from '../types';
 
 const PRESETS: Record<InstrumentPreset, object> = {
-  piano: { oscillator: { type: 'triangle' }, envelope: { attack: 0.01, decay: 0.3, sustain: 0.2, release: 1 } },
-  strings: { oscillator: { type: 'sawtooth' }, envelope: { attack: 0.4, decay: 0.1, sustain: 0.8, release: 1.5 } },
-  brass: { oscillator: { type: 'square' }, envelope: { attack: 0.08, decay: 0.1, sustain: 0.7, release: 0.5 } },
-  bass: { oscillator: { type: 'triangle' }, envelope: { attack: 0.05, decay: 0.2, sustain: 0.5, release: 0.8 } },
-  flute: { oscillator: { type: 'sine' }, envelope: { attack: 0.12, decay: 0.05, sustain: 0.9, release: 0.6 } },
-  organ: { oscillator: { type: 'square' }, envelope: { attack: 0.01, decay: 0, sustain: 1, release: 0.15 } },
-  synth: { oscillator: { type: 'sawtooth' }, envelope: { attack: 0.02, decay: 0.1, sustain: 0.5, release: 0.8 } },
+  piano:   { oscillator: { type: 'triangle' },  envelope: { attack: 0.01,  decay: 0.3,  sustain: 0.2, release: 1    } },
+  guitar:  { oscillator: { type: 'triangle' },  envelope: { attack: 0.005, decay: 0.25, sustain: 0.1, release: 0.6  } },
+  strings: { oscillator: { type: 'sawtooth' },  envelope: { attack: 0.4,   decay: 0.1,  sustain: 0.8, release: 1.5  } },
+  brass:   { oscillator: { type: 'square' },    envelope: { attack: 0.08,  decay: 0.1,  sustain: 0.7, release: 0.5  } },
+  bass:    { oscillator: { type: 'triangle' },  envelope: { attack: 0.05,  decay: 0.2,  sustain: 0.5, release: 0.8  } },
+  flute:   { oscillator: { type: 'sine' },      envelope: { attack: 0.12,  decay: 0.05, sustain: 0.9, release: 0.6  } },
+  organ:   { oscillator: { type: 'square' },    envelope: { attack: 0.01,  decay: 0,    sustain: 1,   release: 0.15 } },
+  synth:   { oscillator: { type: 'sawtooth' },  envelope: { attack: 0.02,  decay: 0.1,  sustain: 0.5, release: 0.8  } },
 };
 
 class AudioEngine {
