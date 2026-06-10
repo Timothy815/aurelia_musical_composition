@@ -23,8 +23,10 @@ class AudioEngine {
   trackSynths: Map<string, Tone.PolySynth> = new Map();
   realtimeNotes = new Set<string>();
   private pendingReleases = new Set<string>();
-  // Dedicated synth for interactive key presses — short release prevents stuck-note tails
-  private realtimeSynth: Tone.PolySynth | null = null;
+  // Tracks which synth played each realtime note so we release the right one
+  private realtimeNoteSynth = new Map<string, 'sampler' | 'fallback'>();
+  // Short-release fallback synth used before sampler loads
+  private realtimeFallback: Tone.PolySynth | null = null;
   private initPromise: Promise<void> | null = null;
 
   onNotePlay?: (pitch: string) => void;
@@ -36,7 +38,7 @@ class AudioEngine {
       this.initPromise = (async () => {
         await Tone.start();
 
-        this.realtimeSynth = new Tone.PolySynth(Tone.Synth, {
+        this.realtimeFallback = new Tone.PolySynth(Tone.Synth, {
           oscillator: { type: 'triangle' as any },
           envelope: { attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.05 }
         }).toDestination();
@@ -62,7 +64,7 @@ class AudioEngine {
             A6: "A6.mp3", C7: "C7.mp3", "D#7": "Ds7.mp3", "F#7": "Fs7.mp3",
             A7: "A7.mp3", C8: "C8.mp3"
           },
-          release: 1,
+          release: 0.1,
           baseUrl: "https://tonejs.github.io/audio/salamander/",
         }).toDestination();
 
@@ -93,12 +95,18 @@ class AudioEngine {
       this.pendingReleases.delete(pitch);
       return;
     }
-    // If the note is already tracked, release it first to avoid double-attack
+    // Release any already-playing instance of this pitch before re-attacking
     if (this.realtimeNotes.has(pitch)) {
-      this.realtimeSynth?.triggerRelease(pitch);
+      this._releaseRealtimeNote(pitch);
     }
     this.realtimeNotes.add(pitch);
-    this.realtimeSynth!.triggerAttack(pitch);
+    if (this.sampler && this.sampler.loaded) {
+      this.sampler.triggerAttack(pitch);
+      this.realtimeNoteSynth.set(pitch, 'sampler');
+    } else {
+      this.realtimeFallback!.triggerAttack(pitch);
+      this.realtimeNoteSynth.set(pitch, 'fallback');
+    }
   }
 
   stopNoteRealtime(pitch: string) {
@@ -107,8 +115,19 @@ class AudioEngine {
       return;
     }
     this.pendingReleases.delete(pitch);
+    if (!this.realtimeNotes.has(pitch)) return;
     this.realtimeNotes.delete(pitch);
-    this.realtimeSynth?.triggerRelease(pitch);
+    this._releaseRealtimeNote(pitch);
+  }
+
+  private _releaseRealtimeNote(pitch: string) {
+    const synthType = this.realtimeNoteSynth.get(pitch);
+    this.realtimeNoteSynth.delete(pitch);
+    if (synthType === 'sampler') {
+      try { this.sampler?.triggerRelease(pitch); } catch (_) {}
+    } else {
+      try { this.realtimeFallback?.triggerRelease(pitch); } catch (_) {}
+    }
   }
 
   playNotePreview(pitch: string, preset?: InstrumentPreset) {
@@ -155,16 +174,12 @@ class AudioEngine {
     Tone.Transport.bpm.value = song.tempo;
     Tone.Transport.timeSignature = song.timeSignature;
 
-    // Dispose previous per-track synths
     this.trackSynths.forEach(s => s.dispose());
     this.trackSynths.clear();
 
-    // Create per-track synths
     song.tracks.forEach(track => {
       const preset = track.instrument;
-      if (preset === 'piano') {
-        // piano reuses sampler/fallback — no dedicated synth needed
-      } else {
+      if (preset !== 'piano') {
         const synth = new Tone.PolySynth(Tone.Synth, PRESETS[preset] as any).toDestination();
         this.trackSynths.set(track.id, synth);
       }
