@@ -702,11 +702,13 @@ export default function App() {
           >Guitar</button>
         </div>
 
-        {instrumentView === 'keyboard' ? (
+        {/* Both always mounted so QWERTY/MIDI listeners stay active; CSS hides the inactive one */}
+        <div className={instrumentView === 'keyboard' ? '' : 'hidden'}>
           <Keyboard activeNotes={combinedNotes} onNoteOn={handleNoteOn} onNoteOff={handleNoteOff} latchMode={!playMode} />
-        ) : (
+        </div>
+        <div className={instrumentView === 'fretboard' ? '' : 'hidden'}>
           <Fretboard activeNotes={combinedNotes} onNoteOn={handleNoteOn} onNoteOff={handleNoteOff} latchMode={!playMode} />
-        )}
+        </div>
       </div>
     </div>
   );
