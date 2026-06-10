@@ -88,6 +88,7 @@ export default function App() {
   const [loopStart, setLoopStart] = useState(0);
   const [loopEnd, setLoopEnd] = useState(8);
   const [clipboard, setClipboard] = useState<{ notes: NoteData[]; trackIds: string[] } | null>(null);
+  const [pianoReady, setPianoReady] = useState(false);
 
   useEffect(() => {
     const initFn = () => { audio.init().catch(console.error); };
@@ -97,6 +98,7 @@ export default function App() {
     window.addEventListener('touchstart', initFn, { once: true });
     audio.onNotePlay = (p) => setPlayingNotes(prev => { const n = new Set(prev); n.add(p); return n; });
     audio.onNoteStop = (p) => setPlayingNotes(prev => { const n = new Set(prev); n.delete(p); return n; });
+    audio.onSamplerLoad = () => setPianoReady(true);
     return () => {
       window.removeEventListener('mousedown', initFn);
       window.removeEventListener('keydown', initFn);
@@ -277,6 +279,12 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
+          {!pianoReady && (
+            <div className="flex items-center gap-1.5 text-[10px] text-[#8E8E93] uppercase tracking-wider mr-2">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#D4AF37] animate-pulse" />
+              Loading piano...
+            </div>
+          )}
           {/* Undo / Redo */}
           <button
             onClick={() => dispatch({ type: 'UNDO' })}

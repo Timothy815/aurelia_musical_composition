@@ -31,6 +31,7 @@ class AudioEngine {
 
   onNotePlay?: (pitch: string) => void;
   onNoteStop?: (pitch: string) => void;
+  onSamplerLoad?: () => void;
 
   async init() {
     if (this.initialized) return;
@@ -66,6 +67,7 @@ class AudioEngine {
           },
           release: 0.1,
           baseUrl: "https://tonejs.github.io/audio/salamander/",
+          onload: () => { this.onSamplerLoad?.(); },
         }).toDestination();
 
         this.metronomeSynth = new Tone.Synth({
