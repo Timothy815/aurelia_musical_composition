@@ -90,11 +90,18 @@ export default function App() {
   const [clipboard, setClipboard] = useState<{ notes: NoteData[]; trackIds: string[] } | null>(null);
 
   useEffect(() => {
-    const initFn = async () => { await audio.init(); };
-    window.addEventListener('click', initFn, { once: true });
+    const initFn = () => { audio.init().catch(console.error); };
+    // Start init on any user gesture so audio is ready before the first note
+    window.addEventListener('mousedown', initFn, { once: true });
+    window.addEventListener('keydown', initFn, { once: true });
+    window.addEventListener('touchstart', initFn, { once: true });
     audio.onNotePlay = (p) => setPlayingNotes(prev => { const n = new Set(prev); n.add(p); return n; });
     audio.onNoteStop = (p) => setPlayingNotes(prev => { const n = new Set(prev); n.delete(p); return n; });
-    return () => window.removeEventListener('click', initFn);
+    return () => {
+      window.removeEventListener('mousedown', initFn);
+      window.removeEventListener('keydown', initFn);
+      window.removeEventListener('touchstart', initFn);
+    };
   }, []);
 
   const combinedNotes = useMemo(() => {
@@ -129,6 +136,11 @@ export default function App() {
 
   const handleNoteOn = async (pitch: string) => {
     await audio.init();
+    // Guard against stale-state double-press: if note is already playing, stop it instead
+    if (audio.realtimeNotes.has(pitch)) {
+      handleNoteOff(pitch);
+      return;
+    }
     setActiveNotes(prev => { const n = new Set(prev); n.add(pitch); return n; });
     audio.playNoteRealtime(pitch);
   };

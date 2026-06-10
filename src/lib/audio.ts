@@ -21,51 +21,55 @@ class AudioEngine {
   metronomeLoop: Tone.Loop | null = null;
   isMetronomeEnabled = false;
   trackSynths: Map<string, Tone.PolySynth> = new Map();
-  // Ground-truth set of pitches currently held via playNoteRealtime
   realtimeNotes = new Set<string>();
   private pendingReleases = new Set<string>();
-  // Per-pitch dedicated Synth instances for reliable release
   private noteSynths = new Map<string, Tone.Synth>();
+  private initPromise: Promise<void> | null = null;
 
   onNotePlay?: (pitch: string) => void;
   onNoteStop?: (pitch: string) => void;
 
   async init() {
     if (this.initialized) return;
-    await Tone.start();
+    if (!this.initPromise) {
+      this.initPromise = (async () => {
+        await Tone.start();
 
-    this.fallbackSynth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: 'triangle' as any },
-      envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 1 }
-    }).toDestination();
+        this.fallbackSynth = new Tone.PolySynth(Tone.Synth, {
+          oscillator: { type: 'triangle' as any },
+          envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 1 }
+        }).toDestination();
 
-    this.previewSynth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: 'triangle' as any },
-      envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 1 }
-    }).toDestination();
+        this.previewSynth = new Tone.PolySynth(Tone.Synth, {
+          oscillator: { type: 'triangle' as any },
+          envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 1 }
+        }).toDestination();
 
-    this.sampler = new Tone.Sampler({
-      urls: {
-        A0: "A0.mp3", C1: "C1.mp3", "D#1": "Ds1.mp3", "F#1": "Fs1.mp3",
-        A1: "A1.mp3", C2: "C2.mp3", "D#2": "Ds2.mp3", "F#2": "Fs2.mp3",
-        A2: "A2.mp3", C3: "C3.mp3", "D#3": "Ds3.mp3", "F#3": "Fs3.mp3",
-        A3: "A3.mp3", C4: "C4.mp3", "D#4": "Ds4.mp3", "F#4": "Fs4.mp3",
-        A4: "A4.mp3", C5: "C5.mp3", "D#5": "Ds5.mp3", "F#5": "Fs5.mp3",
-        A5: "A5.mp3", C6: "C6.mp3", "D#6": "Ds6.mp3", "F#6": "Fs6.mp3",
-        A6: "A6.mp3", C7: "C7.mp3", "D#7": "Ds7.mp3", "F#7": "Fs7.mp3",
-        A7: "A7.mp3", C8: "C8.mp3"
-      },
-      release: 1,
-      baseUrl: "https://tonejs.github.io/audio/salamander/",
-    }).toDestination();
+        this.sampler = new Tone.Sampler({
+          urls: {
+            A0: "A0.mp3", C1: "C1.mp3", "D#1": "Ds1.mp3", "F#1": "Fs1.mp3",
+            A1: "A1.mp3", C2: "C2.mp3", "D#2": "Ds2.mp3", "F#2": "Fs2.mp3",
+            A2: "A2.mp3", C3: "C3.mp3", "D#3": "Ds3.mp3", "F#3": "Fs3.mp3",
+            A3: "A3.mp3", C4: "C4.mp3", "D#4": "Ds4.mp3", "F#4": "Fs4.mp3",
+            A4: "A4.mp3", C5: "C5.mp3", "D#5": "Ds5.mp3", "F#5": "Fs5.mp3",
+            A5: "A5.mp3", C6: "C6.mp3", "D#6": "Ds6.mp3", "F#6": "Fs6.mp3",
+            A6: "A6.mp3", C7: "C7.mp3", "D#7": "Ds7.mp3", "F#7": "Fs7.mp3",
+            A7: "A7.mp3", C8: "C8.mp3"
+          },
+          release: 1,
+          baseUrl: "https://tonejs.github.io/audio/salamander/",
+        }).toDestination();
 
-    this.metronomeSynth = new Tone.Synth({
-      oscillator: { type: "square" as any },
-      envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.01 }
-    }).toDestination();
-    this.metronomeSynth.volume.value = -10;
+        this.metronomeSynth = new Tone.Synth({
+          oscillator: { type: "square" as any },
+          envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.01 }
+        }).toDestination();
+        this.metronomeSynth.volume.value = -10;
 
-    this.initialized = true;
+        this.initialized = true;
+      })();
+    }
+    return this.initPromise;
   }
 
   private getRealtimeInstrument(): Tone.Sampler | Tone.PolySynth {
@@ -83,12 +87,9 @@ class AudioEngine {
       this.pendingReleases.delete(pitch);
       return;
     }
-    // If a per-note synth already exists for this pitch, release it first
-    // (handles rapid double-press before React state catches up)
     const existing = this.noteSynths.get(pitch);
     if (existing) {
-      existing.triggerRelease();
-      setTimeout(() => existing.dispose(), 2000);
+      try { existing.dispose(); } catch (_) {}
       this.noteSynths.delete(pitch);
     }
     this.realtimeNotes.add(pitch);
@@ -113,8 +114,7 @@ class AudioEngine {
     this.realtimeNotes.delete(pitch);
     const synth = this.noteSynths.get(pitch);
     if (synth) {
-      synth.triggerRelease();
-      setTimeout(() => synth.dispose(), 2000);
+      try { synth.dispose(); } catch (_) {}
       this.noteSynths.delete(pitch);
     }
     if (this.sampler?.loaded) this.sampler.triggerRelease(pitch);
