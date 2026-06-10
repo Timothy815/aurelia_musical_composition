@@ -7,7 +7,7 @@ export const FIRST_MEASURE_EXTRA = 110; // px reserved for clef + key sig + time
 export const BARLINE_PADDING = 10;     // px between left barline and first note in col>0 staves
 // VexFlow adds stave.getNoteStartX() + this value to tc.getX() when rendering notes
 const VEXFLOW_NOTE_OFFSET = 12; // Metrics.get('Stave.padding') = 12
-export const TRACK_HEIGHT = 150;
+export const TRACK_HEIGHT = 290;
 export const STAVE_Y_FIRST = 40;
 export const GRID_TOP_OFFSET = 25; // grid overlay starts this many px above stave Y
 export const GRID_SUBDIVISIONS = 4;

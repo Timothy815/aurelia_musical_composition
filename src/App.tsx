@@ -143,6 +143,9 @@ export default function App() {
     let duration = selectedDuration;
     if (isDotted) duration *= 1.5;
 
+    const pitchList = Array.from(activeNotes);
+    const newIds = (isRest ? ['_'] : pitchList).map(() => generateId());
+
     setSong(prev => {
       const newTracks = [...prev.tracks];
       const track = newTracks[0];
@@ -152,10 +155,10 @@ export default function App() {
       }
       const newNotes = [...track.notes];
       if (isRest) {
-        newNotes.push({ id: generateId(), pitch: 'B4', start: appendBeat, duration, isRest: true });
+        newNotes.push({ id: newIds[0], pitch: 'B4', start: appendBeat, duration, isRest: true });
       } else {
-        Array.from(activeNotes).forEach(pitch => {
-          newNotes.push({ id: generateId(), pitch, start: appendBeat, duration, isRest: false, voice: activeVoice });
+        pitchList.forEach((pitch, i) => {
+          newNotes.push({ id: newIds[i], pitch, start: appendBeat, duration, isRest: false, voice: activeVoice });
         });
       }
       newTracks[0] = { ...track, notes: newNotes };
@@ -164,7 +167,8 @@ export default function App() {
 
     activeNotes.forEach(p => audio.stopNoteRealtime(p));
     setActiveNotes(new Set());
-  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, setSong]);
+    setSelectedNoteIds(new Set(newIds));
+  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, setSong, setSelectedNoteIds]);
 
   // Global keyboard shortcuts
   useEffect(() => {

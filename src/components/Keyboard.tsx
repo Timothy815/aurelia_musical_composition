@@ -59,9 +59,7 @@ export function Keyboard({
   }, [qwertyOctave]);
 
   const callbacksRef = React.useRef({ onNoteOn, onNoteOff, latchMode, activeNotes, keyToPitch });
-  useEffect(() => {
-    callbacksRef.current = { onNoteOn, onNoteOff, latchMode, activeNotes, keyToPitch };
-  }, [onNoteOn, onNoteOff, latchMode, activeNotes, keyToPitch]);
+  callbacksRef.current = { onNoteOn, onNoteOff, latchMode, activeNotes, keyToPitch };
 
   // Handle QWERTY input
   useEffect(() => {
