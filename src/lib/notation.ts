@@ -1,5 +1,6 @@
 import { VexFlow, RendererBackends } from 'vexflow';
 import { SongData, NoteData } from '../types';
+import { Chord } from '@tonaljs/tonal';
 
 // Shared layout constants — also imported by Notation.tsx for grid overlay alignment
 export const PIXELS_PER_BEAT = 60;
@@ -13,7 +14,9 @@ export const GRID_TOP_OFFSET = 25; // grid overlay starts this many px above sta
 export const GRID_SUBDIVISIONS = 4;
 export const CELL_WIDTH = PIXELS_PER_BEAT / GRID_SUBDIVISIONS; // 15
 export const CELL_HEIGHT = 10;
-export const TAB_TRACK_HEIGHT_EXTRA = 130; // additional px per track when showing guitar tab
+export const CHORD_SECTION_HEADER_H = 28;
+export const CHORD_DIAG_COL_W = 80;  // px per diagram column including gap
+export const CHORD_DIAG_ROW_H = 116; // px per diagram row: label (14) + diagram (88) + gap (14)
 
 // ── Guitar chord diagram helpers ─────────────────────────────────────────────
 // String indices: 0 = high e (E4=64), 1 = B3, 2 = G3, 3 = D3, 4 = A2, 5 = low E (E2=40)
@@ -22,6 +25,13 @@ const GUITAR_OPEN_MIDI = [64, 59, 55, 50, 45, 40];
 export interface ChordDiagramResult {
   frets: Array<number | null>; // index 0=high e … 5=low E; null=muted, 0=open, 1+=fret
   baseFret: number;            // fret number shown at top of diagram
+}
+
+export interface ChordForTab {
+  pitches: string[];
+  label: string;
+  pcKey: string;
+  diagram: ChordDiagramResult;
 }
 
 function noteToMidi(pitch: string): number {
@@ -135,7 +145,7 @@ export function calcLayout(song: SongData, availableWidth: number, showGuitarTab
   const numRows = Math.ceil(totalMeasures / measuresPerRow);
 
   const svgWidth = 10 + firstMeasureWidth + Math.max(0, measuresPerRow - 1) * laterMeasureWidth + 10;
-  const effectiveTrackHeight = showGuitarTab ? TRACK_HEIGHT + TAB_TRACK_HEIGHT_EXTRA : TRACK_HEIGHT;
+  const effectiveTrackHeight = TRACK_HEIGHT;
   const svgHeight = numRows * song.tracks.length * effectiveTrackHeight + STAVE_Y_FIRST + 20;
 
   return { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgWidth, svgHeight, effectiveTrackHeight };
@@ -464,6 +474,90 @@ function drawChordDiagramOnCanvas(
   ctx.restore();
 }
 
+// Collect all unique chord formations across all tracks (deduplicated by pitch-class set).
+export function collectUniqueChordsForTab(song: SongData): ChordForTab[] {
+  const allByBeat = new Map<number, string[]>();
+  song.tracks.forEach(track => {
+    track.notes.forEach(n => {
+      if (n.isRest) return;
+      const k = Math.round(n.start * 100) / 100;
+      if (!allByBeat.has(k)) allByBeat.set(k, []);
+      allByBeat.get(k)!.push(n.pitch);
+    });
+  });
+
+  const sortedBeats = [...allByBeat.entries()].sort(([a], [b]) => a - b);
+  const seen = new Set<string>();
+  const result: ChordForTab[] = [];
+  let lastPCKey = '';
+
+  sortedBeats.forEach(([, pitches]) => {
+    const pcKey = [...new Set(pitches.map(p => p.replace(/\d+$/, '')))].sort().join(',');
+    if (pcKey === lastPCKey) return;
+    lastPCKey = pcKey;
+    if (seen.has(pcKey)) return;
+    seen.add(pcKey);
+
+    const pcs = [...new Set(pitches.map(p => p.replace(/[0-9]/g, '')))];
+    const detected = Chord.detect(pcs);
+    const label = detected.length > 0 ? detected[0] : pcs.join('/');
+    result.push({ pitches, label, pcKey, diagram: pitchesToChordDiagram(pitches) });
+  });
+
+  return result;
+}
+
+// Render a standalone chord dictionary page to a canvas (for PDF export).
+// Returns true if any chords were drawn, false if the song has no chord content.
+export function renderChordSectionToCanvas(
+  canvas: HTMLCanvasElement,
+  song: SongData,
+  scale: number,
+  pageWidth: number
+): boolean {
+  const chords = collectUniqueChordsForTab(song);
+  if (chords.length === 0) return false;
+
+  const margin = 20;
+  const diagramsPerRow = Math.max(1, Math.floor((pageWidth - margin * 2) / CHORD_DIAG_COL_W));
+  const numChordRows = Math.ceil(chords.length / diagramsPerRow);
+  const totalH = CHORD_SECTION_HEADER_H + numChordRows * CHORD_DIAG_ROW_H + 20;
+
+  canvas.width = pageWidth * scale;
+  canvas.height = totalH * scale;
+
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.save();
+  ctx.font = `bold ${11 * scale}px Arial, sans-serif`;
+  ctx.fillStyle = '#000000';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText('Guitar Chord Dictionary', margin * scale, 18 * scale);
+  ctx.restore();
+
+  chords.forEach((chord, i) => {
+    const row = Math.floor(i / diagramsPerRow);
+    const col = i % diagramsPerRow;
+    const x = margin + col * CHORD_DIAG_COL_W;
+    const y = CHORD_SECTION_HEADER_H + row * CHORD_DIAG_ROW_H;
+
+    ctx.save();
+    ctx.font = `${9 * scale}px Arial, sans-serif`;
+    ctx.fillStyle = '#000000';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(chord.label, (x + DIAG_W / 2) * scale, (y + 11) * scale);
+    ctx.restore();
+
+    drawChordDiagramOnCanvas(ctx, chord.diagram, x * scale, (y + 14) * scale, scale);
+  });
+
+  return true;
+}
+
 // Canvas-based render for export (same logic, scaled).
 // startRow / rowsPerPage enable pagination: only the rows in [startRow, startRow+rowsPerPage) are drawn.
 export function renderNotationToCanvas(
@@ -569,44 +663,6 @@ export function renderNotationToCanvas(
       }
     }
   });
-
-  // Draw chord diagrams when guitar tab is on (chord-change-only)
-  if (showGuitarTab) {
-    song.tracks.forEach((track, tIndex) => {
-      const beats = new Map<number, string[]>();
-      track.notes.forEach(n => {
-        if (n.isRest) return;
-        const k = Math.round(n.start * 100) / 100;
-        if (!beats.has(k)) beats.set(k, []);
-        beats.get(k)!.push(n.pitch);
-      });
-
-      const sortedBeats = [...beats.entries()].sort(([a], [b]) => a - b);
-      let lastPCKey = '';
-      sortedBeats.forEach(([beatPos, pitches]) => {
-        const pcKey = [...new Set(pitches.map(p => p.replace(/\d+$/, '')))].sort().join(',');
-        if (pcKey === lastPCKey) return;
-        lastPCKey = pcKey;
-
-        const mIndex = Math.floor(beatPos / beatsPerMeasure);
-        const rowIdx = Math.floor(mIndex / measuresPerRow);
-        if (rowIdx < startRow || rowIdx >= endRow) return;
-        const adjustedRowIdx = rowIdx - startRow;
-        const colIdx = mIndex % measuresPerRow;
-        const beatInMeasure = beatPos - mIndex * beatsPerMeasure;
-        const beatX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT;
-        const staveY = adjustedRowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST;
-        const diagram = pitchesToChordDiagram(pitches);
-        drawChordDiagramOnCanvas(
-          ctx2d,
-          diagram,
-          (beatX - DIAG_W / 2) * scale,
-          (staveY + TRACK_HEIGHT + 10) * scale,
-          scale
-        );
-      });
-    });
-  }
 
   // Dynamic markings (change-only per track, below stave)
   song.tracks.forEach((track, tIndex) => {

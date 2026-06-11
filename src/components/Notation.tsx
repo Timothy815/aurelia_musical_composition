@@ -5,8 +5,8 @@ import {
   getMeasureNoteStartX,
   PIXELS_PER_BEAT, FIRST_MEASURE_EXTRA, STAVE_Y_FIRST,
   GRID_TOP_OFFSET, GRID_SUBDIVISIONS, CELL_WIDTH, CELL_HEIGHT,
-  TRACK_HEIGHT, TAB_TRACK_HEIGHT_EXTRA,
-  pitchesToChordDiagram, ChordDiagramResult,
+  TRACK_HEIGHT,
+  ChordDiagramResult, collectUniqueChordsForTab, ChordForTab,
 } from '../lib/notation';
 import { SongData, NoteData, DynamicMarking, ArticulationMarking, InstrumentPreset } from '../types';
 import { generateId, cn } from '../lib/utils';
@@ -383,6 +383,11 @@ export function Notation({
 
   const { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgHeight, svgWidth, effectiveTrackHeight } = layout;
 
+  const uniqueChordsForTab = useMemo<ChordForTab[]>(() => {
+    if (!showGuitarTab) return [];
+    return collectUniqueChordsForTab(song);
+  }, [showGuitarTab, song]);
+
   // Compute note drag ghost positions for preview
   const dragGhostKeys = useMemo<Set<string>>(() => {
     if (!noteDrag) return new Set();
@@ -464,47 +469,6 @@ export function Notation({
               </span>
             </div>
           );
-        })}
-
-        {/* Chord diagram boxes below each track's stave (when guitar tab is on) */}
-        {showGuitarTab && song.tracks.map((track, tIndex) => {
-          // Collect unique beat positions with at least one non-rest note
-          const beats = new Map<number, string[]>();
-          track.notes.forEach(n => {
-            if (n.isRest) return;
-            const k = Math.round(n.start * 100) / 100;
-            if (!beats.has(k)) beats.set(k, []);
-            beats.get(k)!.push(n.pitch);
-          });
-
-          const sortedBeats = [...beats.entries()].sort(([a], [b]) => a - b);
-          let lastPCKey = '';
-          return sortedBeats.flatMap(([beatPos, pitches]) => {
-            const pcKey = [...new Set(pitches.map(p => p.replace(/\d+$/, '')))].sort().join(',');
-            if (pcKey === lastPCKey) return [];
-            lastPCKey = pcKey;
-
-            const mIndex = Math.floor(beatPos / beatsPerMeasure);
-            const rowIdx = Math.floor(mIndex / measuresPerRow);
-            const colIdx = mIndex % measuresPerRow;
-            if (rowIdx >= numRows) return [];
-            const beatInMeasure = beatPos - mIndex * beatsPerMeasure;
-            const beatX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT;
-            const staveY = rowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST;
-            const diagram = pitchesToChordDiagram(pitches);
-            return [(
-              <div
-                key={`diag-${tIndex}-${beatPos}`}
-                className="absolute pointer-events-none z-20"
-                style={{
-                  left: P8 + beatX - DIAG_W / 2,
-                  top: P8 + staveY + TRACK_HEIGHT + 10,
-                }}
-              >
-                <ChordDiagramSVG {...diagram} fg="#C8C8D0" />
-              </div>
-            )];
-          });
         })}
 
         {/* Per-track, per-measure grid sections */}
@@ -617,6 +581,25 @@ export function Notation({
           )
         )}
       </div>
+
+      {/* Guitar chord dictionary — appears below all staves when tab view is on */}
+      {showGuitarTab && uniqueChordsForTab.length > 0 && (
+        <div className="mt-6 pb-4">
+          <div className="text-[11px] font-sans text-[#D4AF37]/60 uppercase tracking-widest mb-3">
+            Guitar Chord Dictionary
+          </div>
+          <div className="flex flex-wrap gap-x-5 gap-y-5">
+            {uniqueChordsForTab.map(chord => (
+              <div key={chord.pcKey} className="flex flex-col items-center gap-1">
+                <span className="text-[10px] font-serif italic text-[#C8C8D0]/80">
+                  {chord.label}
+                </span>
+                <ChordDiagramSVG {...chord.diagram} fg="#C8C8D0" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

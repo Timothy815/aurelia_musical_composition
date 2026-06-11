@@ -272,37 +272,78 @@ export default function App() {
 
   const handleAppendToScore = useCallback(() => {
     if (activeNotes.size === 0 && !isRest) return;
-    let duration = selectedDuration;
-    if (isDotted) duration *= 1.5;
+    let fallbackDuration = selectedDuration;
+    if (isDotted) fallbackDuration *= 1.5;
 
     const pitchList = Array.from(activeNotes);
     const newIds = (isRest ? ['_'] : pitchList).map(() => generateId());
 
+    // When notes are selected, insert into that chord instead of appending to end.
+    // Use the existing chord's duration so the rhythm stays intact.
+    let insertTarget: { trackIdx: number; beat: number; duration: number } | null = null;
+    if (selectedNoteIds.size > 0) {
+      for (let ti = 0; ti < song.tracks.length; ti++) {
+        const selected = song.tracks[ti].notes.filter(n => selectedNoteIds.has(n.id));
+        if (selected.length > 0) {
+          const beat = Math.min(...selected.map(n => n.start));
+          const duration = selected[0].duration;
+          insertTarget = { trackIdx: ti, beat, duration };
+          break;
+        }
+      }
+    }
+
     setSong(prev => {
       const newTracks = [...prev.tracks];
-      const track = newTracks[0];
-      let appendBeat = 0;
-      if (track.notes.length > 0) {
-        appendBeat = Math.max(...track.notes.map(n => n.start + n.duration));
-      }
-      const newNotes = [...track.notes];
-      if (isRest) {
-        newNotes.push({ id: newIds[0], pitch: 'B4', start: appendBeat, duration, isRest: true });
+      const dyn = selectedDynamic ?? undefined;
+      const artic = selectedArticulation ?? undefined;
+
+      if (insertTarget) {
+        const { trackIdx, beat, duration } = insertTarget;
+        const track = newTracks[trackIdx];
+        const newNotes = [...track.notes];
+        if (isRest) {
+          newNotes.push({ id: newIds[0], pitch: 'B4', start: beat, duration, isRest: true });
+        } else {
+          pitchList.forEach((pitch, i) => {
+            newNotes.push({ id: newIds[i], pitch, start: beat, duration, isRest: false, voice: activeVoice, dynamic: dyn, articulation: artic });
+          });
+        }
+        newTracks[trackIdx] = { ...track, notes: newNotes };
       } else {
-        const dyn = selectedDynamic ?? undefined;
-        const artic = selectedArticulation ?? undefined;
-        pitchList.forEach((pitch, i) => {
-          newNotes.push({ id: newIds[i], pitch, start: appendBeat, duration, isRest: false, voice: activeVoice, dynamic: dyn, articulation: artic });
-        });
+        const track = newTracks[0];
+        let appendBeat = 0;
+        if (track.notes.length > 0) {
+          appendBeat = Math.max(...track.notes.map(n => n.start + n.duration));
+        }
+        const newNotes = [...track.notes];
+        if (isRest) {
+          newNotes.push({ id: newIds[0], pitch: 'B4', start: appendBeat, duration: fallbackDuration, isRest: true });
+        } else {
+          pitchList.forEach((pitch, i) => {
+            newNotes.push({ id: newIds[i], pitch, start: appendBeat, duration: fallbackDuration, isRest: false, voice: activeVoice, dynamic: dyn, articulation: artic });
+          });
+        }
+        newTracks[0] = { ...track, notes: newNotes };
       }
-      newTracks[0] = { ...track, notes: newNotes };
+
       return { ...prev, tracks: newTracks };
     });
 
     activeNotes.forEach(p => audio.stopNoteRealtime(p));
     setActiveNotes(new Set());
-    setSelectedNoteIds(new Set(newIds));
-  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSong, setSelectedNoteIds]);
+
+    if (insertTarget) {
+      // Advance selection to the next beat so you can chain edits chord-by-chord
+      const nextBeat = insertTarget.beat + insertTarget.duration;
+      const nextNotes = song.tracks[insertTarget.trackIdx].notes.filter(
+        n => Math.abs(n.start - nextBeat) < 0.01
+      );
+      setSelectedNoteIds(nextNotes.length > 0 ? new Set(nextNotes.map(n => n.id)) : new Set());
+    } else {
+      setSelectedNoteIds(new Set(newIds));
+    }
+  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSong, setSelectedNoteIds, selectedNoteIds, song]);
 
   const initMidi = useCallback(async () => {
     if (!('requestMIDIAccess' in navigator)) {

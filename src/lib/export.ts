@@ -1,6 +1,6 @@
 import MidiWriter from 'midi-writer-js';
 import { SongData, NoteData } from '../types';
-import { renderNotationToCanvas, calcLayout } from './notation';
+import { renderNotationToCanvas, calcLayout, renderChordSectionToCanvas } from './notation';
 
 // ── MusicXML helpers ───────────────────────────────────────────────────────
 
@@ -257,6 +257,15 @@ export function exportToPdf(song: SongData, showGuitarTab = false) {
     renderNotationToCanvas(canvas, song, SCALE, PAGE_WIDTH, showGuitarTab, startRow, rowsPerPage);
     pageDataUrls.push(canvas.toDataURL('image/png'));
     document.body.removeChild(canvas);
+  }
+
+  if (showGuitarTab) {
+    const chordCanvas = document.createElement('canvas');
+    chordCanvas.style.cssText = 'position:fixed;left:-9999px;top:0;';
+    document.body.appendChild(chordCanvas);
+    const hasChords = renderChordSectionToCanvas(chordCanvas, song, SCALE, PAGE_WIDTH);
+    if (hasChords) pageDataUrls.push(chordCanvas.toDataURL('image/png'));
+    document.body.removeChild(chordCanvas);
   }
 
   const printWindow = window.open('', '_blank', 'width=1050,height=780');
