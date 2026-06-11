@@ -135,6 +135,10 @@ export default function App() {
   const [pianoReady, setPianoReady] = useState(false);
   const [selectedDynamic, setSelectedDynamic] = useState<DynamicMarking | null>(null);
   const [selectedArticulation, setSelectedArticulation] = useState<ArticulationMarking | null>(null);
+  const [lastChord, setLastChord] = useState<{
+    pitches: string[]; isRest: boolean; duration: number;
+    dynamic?: DynamicMarking; articulation?: ArticulationMarking; voice: 1 | 2;
+  } | null>(null);
   const [effectsSettings, setEffectsSettings] = useState<EffectsSettings>(DEFAULT_EFFECTS);
   const [showEffects, setShowEffects] = useState(false);
   const recordingClickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -283,12 +287,20 @@ export default function App() {
   };
 
   const handleAppendToScore = useCallback(() => {
-    if (activeNotes.size === 0 && !isRest) return;
+    const repeating = activeNotes.size === 0 && !isRest;
+    if (repeating && !lastChord) return;
+
     let fallbackDuration = selectedDuration;
     if (isDotted) fallbackDuration *= 1.5;
 
-    const pitchList = Array.from(activeNotes);
-    const newIds = (isRest ? ['_'] : pitchList).map(() => generateId());
+    const effectivePitches  = repeating ? lastChord!.pitches        : Array.from(activeNotes);
+    const effectiveIsRest   = repeating ? lastChord!.isRest         : isRest;
+    const effectiveDuration = repeating ? lastChord!.duration        : fallbackDuration;
+    const effectiveDynamic  = repeating ? lastChord!.dynamic         : (selectedDynamic ?? undefined);
+    const effectiveArtic    = repeating ? lastChord!.articulation    : (selectedArticulation ?? undefined);
+    const effectiveVoice    = repeating ? lastChord!.voice           : activeVoice;
+
+    const newIds = (effectiveIsRest ? ['_'] : effectivePitches).map(() => generateId());
 
     // In harmony mode, insert into the selected chord instead of appending to end.
     // If harmony mode is on but nothing is selected, do nothing.
@@ -309,18 +321,16 @@ export default function App() {
 
     setSong(prev => {
       const newTracks = [...prev.tracks];
-      const dyn = selectedDynamic ?? undefined;
-      const artic = selectedArticulation ?? undefined;
 
       if (insertTarget) {
         const { trackIdx, beat, duration } = insertTarget;
         const track = newTracks[trackIdx];
         const newNotes = [...track.notes];
-        if (isRest) {
+        if (effectiveIsRest) {
           newNotes.push({ id: newIds[0], pitch: 'B4', start: beat, duration, isRest: true });
         } else {
-          pitchList.forEach((pitch, i) => {
-            newNotes.push({ id: newIds[i], pitch, start: beat, duration, isRest: false, voice: activeVoice, dynamic: dyn, articulation: artic });
+          effectivePitches.forEach((pitch, i) => {
+            newNotes.push({ id: newIds[i], pitch, start: beat, duration, isRest: false, voice: effectiveVoice, dynamic: effectiveDynamic, articulation: effectiveArtic });
           });
         }
         newTracks[trackIdx] = { ...track, notes: newNotes };
@@ -331,11 +341,11 @@ export default function App() {
           appendBeat = Math.max(...track.notes.map(n => n.start + n.duration));
         }
         const newNotes = [...track.notes];
-        if (isRest) {
-          newNotes.push({ id: newIds[0], pitch: 'B4', start: appendBeat, duration: fallbackDuration, isRest: true });
+        if (effectiveIsRest) {
+          newNotes.push({ id: newIds[0], pitch: 'B4', start: appendBeat, duration: effectiveDuration, isRest: true });
         } else {
-          pitchList.forEach((pitch, i) => {
-            newNotes.push({ id: newIds[i], pitch, start: appendBeat, duration: fallbackDuration, isRest: false, voice: activeVoice, dynamic: dyn, articulation: artic });
+          effectivePitches.forEach((pitch, i) => {
+            newNotes.push({ id: newIds[i], pitch, start: appendBeat, duration: effectiveDuration, isRest: false, voice: effectiveVoice, dynamic: effectiveDynamic, articulation: effectiveArtic });
           });
         }
         newTracks[0] = { ...track, notes: newNotes };
@@ -344,8 +354,11 @@ export default function App() {
       return { ...prev, tracks: newTracks };
     });
 
-    activeNotes.forEach(p => audio.stopNoteRealtime(p));
-    setActiveNotes(new Set());
+    if (!repeating) {
+      activeNotes.forEach(p => audio.stopNoteRealtime(p));
+      setActiveNotes(new Set());
+      setLastChord({ pitches: effectivePitches, isRest: effectiveIsRest, duration: effectiveDuration, dynamic: effectiveDynamic, articulation: effectiveArtic, voice: effectiveVoice });
+    }
 
     if (insertTarget) {
       // Advance selection to the next beat so you can chain edits chord-by-chord
@@ -357,7 +370,7 @@ export default function App() {
     } else {
       setSelectedNoteIds(new Set());
     }
-  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSong, setSelectedNoteIds, selectedNoteIds, song, harmonyMode]);
+  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSong, setSelectedNoteIds, selectedNoteIds, song, harmonyMode, lastChord]);
 
   const initMidi = useCallback(async () => {
     if (!('requestMIDIAccess' in navigator)) {
