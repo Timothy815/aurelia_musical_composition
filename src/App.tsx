@@ -591,7 +591,7 @@ export default function App() {
       if (isMod && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
         const activeTrackId = song.tracks[activeTrackIndex]?.id;
-        if (!playMode && activeTrackId && (histState.trackHistories[activeTrackId]?.past.length ?? 0) > 0) {
+        if (activeTrackId && (histState.trackHistories[activeTrackId]?.past.length ?? 0) > 0) {
           dispatch({ type: 'UNDO_TRACK', trackId: activeTrackId });
         } else {
           dispatch({ type: 'UNDO' });
@@ -601,7 +601,7 @@ export default function App() {
       if (isMod && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         e.preventDefault();
         const activeTrackId = song.tracks[activeTrackIndex]?.id;
-        if (!playMode && activeTrackId && (histState.trackHistories[activeTrackId]?.future.length ?? 0) > 0) {
+        if (activeTrackId && (histState.trackHistories[activeTrackId]?.future.length ?? 0) > 0) {
           dispatch({ type: 'REDO_TRACK', trackId: activeTrackId });
         } else {
           dispatch({ type: 'REDO' });
@@ -734,8 +734,8 @@ export default function App() {
           {(() => {
             const activeTrackId = song.tracks[activeTrackIndex]?.id;
             const trackHist = activeTrackId ? histState.trackHistories[activeTrackId] : undefined;
-            const canUndoTrack = !playMode && (trackHist?.past.length ?? 0) > 0;
-            const canRedoTrack = !playMode && (trackHist?.future.length ?? 0) > 0;
+            const canUndoTrack = (trackHist?.past.length ?? 0) > 0;
+            const canRedoTrack = (trackHist?.future.length ?? 0) > 0;
             return (<>
           <button
             onClick={() => {
