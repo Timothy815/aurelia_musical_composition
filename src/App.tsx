@@ -150,6 +150,7 @@ export default function App() {
   const recordedMidiNotes = useRef<NoteData[]>([]);
   const handleNoteOnRef = useRef<(p: string) => void>(() => {});
   const handleNoteOffRef = useRef<(p: string) => void>(() => {});
+  const midiAccessRef = useRef<MIDIAccess | null>(null);
 
   useEffect(() => {
     const initFn = () => { audio.init().catch(console.error); };
@@ -252,8 +253,11 @@ export default function App() {
     setActiveNotes(prev => { const n = new Set(prev); n.delete(pitch); return n; });
     audio.stopNoteRealtime(pitch);
   };
-  // Keep refs pointing to latest handlers for MIDI callback
-  handleNoteOnRef.current = handleNoteOn;
+  // MIDI path: sync, no guard — avoids async microtask race that caused rubber-band plucks
+  handleNoteOnRef.current = (pitch: string) => {
+    setActiveNotes(prev => { const n = new Set(prev); n.add(pitch); return n; });
+    audio.playNoteRealtime(pitch);
+  };
   handleNoteOffRef.current = handleNoteOff;
 
   const handleAppendToScore = useCallback(() => {
@@ -298,6 +302,7 @@ export default function App() {
     try {
       await audio.init();
       const access = await navigator.requestMIDIAccess({ sysex: false });
+      midiAccessRef.current = access;
       for (const input of access.inputs.values()) {
         await input.open();
         input.addEventListener('midimessage', midiMessageHandler);
@@ -318,6 +323,22 @@ export default function App() {
     } catch {
       alert('MIDI access denied. Allow MIDI access in browser settings and try again.');
     }
+  }, [midiMessageHandler]);
+
+  const disableMidi = useCallback(() => {
+    if (midiAccessRef.current) {
+      midiAccessRef.current.inputs.forEach(input => {
+        input.removeEventListener('midimessage', midiMessageHandler);
+      });
+      midiAccessRef.current.onstatechange = null;
+      midiAccessRef.current = null;
+    }
+    isRecordingRef.current = false;
+    recordingStartTimeRef.current = null;
+    setIsRecording(false);
+    setCountInDisplay(0);
+    setMidiEnabled(false);
+    setMidiDeviceName(null);
   }, [midiMessageHandler]);
 
   const startRecording = useCallback(async () => {
@@ -669,11 +690,8 @@ export default function App() {
             >MIDI</button>
           ) : (
             <div className="flex items-center gap-1">
-              <span className="text-[9px] text-[#555] max-w-[72px] truncate" title={midiDeviceName ?? ''}>
-                {midiDeviceName ?? 'MIDI'}
-              </span>
               {countInDisplay > 0 ? (
-                <span className="text-[13px] font-bold text-[#D4AF37] w-6 text-center">{countInDisplay}</span>
+                <span className="text-[13px] font-bold text-[#D4AF37] w-5 text-center">{countInDisplay}</span>
               ) : isRecording ? (
                 <button
                   onClick={stopRecording}
@@ -690,14 +708,19 @@ export default function App() {
                     value={quantGrid}
                     onChange={e => setQuantGrid(Number(e.target.value))}
                     className="bg-[#1A1A1C] border border-[#333] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none cursor-pointer"
-                    title="Quantization grid"
+                    title="Quantization"
                   >
-                    <option value={2}>Q 1/8</option>
-                    <option value={4}>Q 1/16</option>
-                    <option value={8}>Q 1/32</option>
+                    <option value={2}>1/8</option>
+                    <option value={4}>1/16</option>
+                    <option value={8}>1/32</option>
                   </select>
                 </>
               )}
+              <button
+                onClick={disableMidi}
+                className="w-5 h-5 flex items-center justify-center text-[#555] hover:text-white rounded transition-colors text-[11px] leading-none"
+                title="Disconnect MIDI"
+              >×</button>
             </div>
           )}
 
