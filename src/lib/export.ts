@@ -241,10 +241,12 @@ export function exportToMidi(song: SongData) {
 export function exportToPdf(song: SongData, showGuitarTab = false) {
   const SCALE = 2;
   const PAGE_WIDTH = 900;
-  // How many layout-pixels of score height fit on one printed page
-  const PAGE_CONTENT_HEIGHT = 660;
+  // Compact track height for PDF — tighter than the browser view (290) so more rows fit per page
+  const PDF_TRACK_HEIGHT = 150;
+  // How many layout-pixels of score content fit on one printed page (landscape letter minus margins)
+  const PAGE_CONTENT_HEIGHT = 600;
 
-  const layout = calcLayout(song, PAGE_WIDTH, showGuitarTab);
+  const layout = calcLayout(song, PAGE_WIDTH, showGuitarTab, PDF_TRACK_HEIGHT);
   const { numRows, effectiveTrackHeight } = layout;
   const rowHeight = song.tracks.length * effectiveTrackHeight;
   const rowsPerPage = Math.max(1, Math.floor(PAGE_CONTENT_HEIGHT / rowHeight));
@@ -254,7 +256,7 @@ export function exportToPdf(song: SongData, showGuitarTab = false) {
     const canvas = document.createElement('canvas');
     canvas.style.cssText = 'position:fixed;left:-9999px;top:0;';
     document.body.appendChild(canvas);
-    renderNotationToCanvas(canvas, song, SCALE, PAGE_WIDTH, showGuitarTab, startRow, rowsPerPage);
+    renderNotationToCanvas(canvas, song, SCALE, PAGE_WIDTH, showGuitarTab, startRow, rowsPerPage, PDF_TRACK_HEIGHT);
     pageDataUrls.push(canvas.toDataURL('image/png'));
     document.body.removeChild(canvas);
   }

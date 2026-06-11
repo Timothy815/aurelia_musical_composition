@@ -126,7 +126,7 @@ export interface NotationLayout {
   effectiveTrackHeight: number;
 }
 
-export function calcLayout(song: SongData, availableWidth: number, showGuitarTab = false): NotationLayout {
+export function calcLayout(song: SongData, availableWidth: number, showGuitarTab = false, trackHeightOverride?: number): NotationLayout {
   const beatsPerMeasure = song.timeSignature[0];
   const notesWidthPerMeasure = beatsPerMeasure * PIXELS_PER_BEAT;
   const firstMeasureWidth = FIRST_MEASURE_EXTRA + notesWidthPerMeasure;
@@ -145,7 +145,7 @@ export function calcLayout(song: SongData, availableWidth: number, showGuitarTab
   const numRows = Math.ceil(totalMeasures / measuresPerRow);
 
   const svgWidth = 10 + firstMeasureWidth + Math.max(0, measuresPerRow - 1) * laterMeasureWidth + 10;
-  const effectiveTrackHeight = TRACK_HEIGHT;
+  const effectiveTrackHeight = trackHeightOverride ?? TRACK_HEIGHT;
   const svgHeight = numRows * song.tracks.length * effectiveTrackHeight + STAVE_Y_FIRST + 20;
 
   return { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgWidth, svgHeight, effectiveTrackHeight };
@@ -567,10 +567,11 @@ export function renderNotationToCanvas(
   pageWidth: number,
   showGuitarTab = false,
   startRow = 0,
-  rowsPerPage?: number
+  rowsPerPage?: number,
+  trackHeightOverride?: number
 ) {
   const VF = VexFlow;
-  const layout = calcLayout(song, pageWidth, showGuitarTab);
+  const layout = calcLayout(song, pageWidth, showGuitarTab, trackHeightOverride);
   const { measuresPerRow, totalMeasures, numRows, notesWidthPerMeasure, beatsPerMeasure, effectiveTrackHeight } = layout;
 
   const endRow = rowsPerPage !== undefined ? Math.min(startRow + rowsPerPage, numRows) : numRows;
