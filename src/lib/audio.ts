@@ -32,6 +32,8 @@ class AudioEngine {
   // Short-release fallback synth used before sampler loads
   private realtimeFallback: Tone.PolySynth | null = null;
   private initPromise: Promise<void> | null = null;
+  // Dedicated state for MIDI keyboard notes (isolated from on-screen keyboard path)
+  private midiActivePitches = new Set<string>();
 
   onNotePlay?: (pitch: string) => void;
   onNoteStop?: (pitch: string) => void;
@@ -69,7 +71,7 @@ class AudioEngine {
             A6: "A6.mp3", C7: "C7.mp3", "D#7": "Ds7.mp3", "F#7": "Fs7.mp3",
             A7: "A7.mp3", C8: "C8.mp3"
           },
-          release: 0.1,
+          release: 1.0,
           baseUrl: `${import.meta.env.BASE_URL}salamander/`,
           onload: () => { this.onSamplerLoad?.(); },
         }).toDestination();
@@ -137,6 +139,35 @@ class AudioEngine {
     } else {
       try { this.realtimeFallback?.triggerRelease(pitch); } catch (_) {}
     }
+  }
+
+  // ── Dedicated MIDI keyboard methods ─────────────────────────────────────
+  // These are completely separate from playNoteRealtime so MIDI and on-screen
+  // keyboard state never interfere with each other.
+
+  playMidiNote(pitch: string) {
+    if (!this.initialized || !this.sampler) return;
+    if (this.midiActivePitches.has(pitch)) {
+      try { this.sampler.triggerRelease(pitch, Tone.now()); } catch (_) {}
+    }
+    this.midiActivePitches.add(pitch);
+    // Small lookahead avoids scheduling-in-the-past artifacts from hardware events
+    this.sampler.triggerAttack(pitch, Tone.now() + 0.015, 0.8);
+  }
+
+  stopMidiNote(pitch: string) {
+    if (!this.initialized || !this.sampler) return;
+    this.midiActivePitches.delete(pitch);
+    try { this.sampler.triggerRelease(pitch, Tone.now() + 0.015); } catch (_) {}
+  }
+
+  releaseAllMidiNotes() {
+    if (!this.sampler) return;
+    const now = Tone.now();
+    this.midiActivePitches.forEach(pitch => {
+      try { this.sampler!.triggerRelease(pitch, now); } catch (_) {}
+    });
+    this.midiActivePitches.clear();
   }
 
   playNotePreview(pitch: string, preset?: InstrumentPreset) {

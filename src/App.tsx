@@ -253,12 +253,15 @@ export default function App() {
     setActiveNotes(prev => { const n = new Set(prev); n.delete(pitch); return n; });
     audio.stopNoteRealtime(pitch);
   };
-  // MIDI path: sync, no guard — avoids async microtask race that caused rubber-band plucks
+  // MIDI path uses dedicated methods (isolated state, proper lookahead scheduling)
   handleNoteOnRef.current = (pitch: string) => {
     setActiveNotes(prev => { const n = new Set(prev); n.add(pitch); return n; });
-    audio.playNoteRealtime(pitch);
+    audio.playMidiNote(pitch);
   };
-  handleNoteOffRef.current = handleNoteOff;
+  handleNoteOffRef.current = (pitch: string) => {
+    setActiveNotes(prev => { const n = new Set(prev); n.delete(pitch); return n; });
+    audio.stopMidiNote(pitch);
+  };
 
   const handleAppendToScore = useCallback(() => {
     if (activeNotes.size === 0 && !isRest) return;
@@ -333,6 +336,8 @@ export default function App() {
       midiAccessRef.current.onstatechange = null;
       midiAccessRef.current = null;
     }
+    audio.releaseAllMidiNotes();
+    setActiveNotes(new Set());
     isRecordingRef.current = false;
     recordingStartTimeRef.current = null;
     setIsRecording(false);
@@ -392,7 +397,7 @@ export default function App() {
         recordedMidiNotes.current.push({
           id: generateId(), pitch, start: qStart, duration: qDur, isRest: false, voice: 1
         });
-        audio.stopNoteRealtime(pitch);
+        audio.stopMidiNote(pitch);
       });
     }
     pendingMidiNotes.current.clear();
