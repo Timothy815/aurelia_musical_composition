@@ -123,6 +123,7 @@ export default function App() {
   const [isDotted, setIsDotted] = useState(false);
   const [isRest, setIsRest] = useState(false);
   const [chordSelectMode, setChordSelectMode] = useState(false);
+  const [harmonyMode, setHarmonyMode] = useState(false);
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
   const [instrumentView, setInstrumentView] = useState<'keyboard' | 'fretboard'>('keyboard');
   const [activeVoice, setActiveVoice] = useState<1 | 2>(1);
@@ -278,10 +279,12 @@ export default function App() {
     const pitchList = Array.from(activeNotes);
     const newIds = (isRest ? ['_'] : pitchList).map(() => generateId());
 
-    // When notes are selected, insert into that chord instead of appending to end.
+    // In harmony mode, insert into the selected chord instead of appending to end.
+    // If harmony mode is on but nothing is selected, do nothing.
     // Use the existing chord's duration so the rhythm stays intact.
     let insertTarget: { trackIdx: number; beat: number; duration: number } | null = null;
-    if (selectedNoteIds.size > 0) {
+    if (harmonyMode) {
+      if (selectedNoteIds.size === 0) return;
       for (let ti = 0; ti < song.tracks.length; ti++) {
         const selected = song.tracks[ti].notes.filter(n => selectedNoteIds.has(n.id));
         if (selected.length > 0) {
@@ -343,7 +346,7 @@ export default function App() {
     } else {
       setSelectedNoteIds(new Set(newIds));
     }
-  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSong, setSelectedNoteIds, selectedNoteIds, song]);
+  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSong, setSelectedNoteIds, selectedNoteIds, song, harmonyMode]);
 
   const initMidi = useCallback(async () => {
     if (!('requestMIDIAccess' in navigator)) {
@@ -959,6 +962,12 @@ export default function App() {
                   chordSelectMode ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
                 )}
               >Select Chords</div>
+              <div
+                onClick={() => setHarmonyMode(!harmonyMode)}
+                className={cn("flex-1 bg-[#151517] border p-2 flex items-center justify-center cursor-pointer transition-colors select-none rounded text-[10px] uppercase tracking-wider font-bold",
+                  harmonyMode ? "border-[#A78BFA] text-[#A78BFA]" : "border-[#222] hover:border-[#A78BFA] text-[#D1D1D1]"
+                )}
+              >Add Harmony</div>
             </div>
 
             {/* Copy hint */}
