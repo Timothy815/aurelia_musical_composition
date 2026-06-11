@@ -1165,9 +1165,9 @@ export default function App() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => updateFx(fxKey, { enabled: !fx.enabled } as any)}
-                        className={cn("w-7 h-3.5 rounded-full transition-colors relative shrink-0", fx.enabled ? "bg-[#D4AF37]" : "bg-[#2A2A2D]")}
+                        className={cn("w-8 h-4 rounded-full transition-colors relative shrink-0 overflow-hidden", fx.enabled ? "bg-[#D4AF37]" : "bg-[#2A2A2D]")}
                       >
-                        <span className={cn("absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-transform shadow-sm", fx.enabled ? "translate-x-3.5" : "translate-x-0.5")} />
+                        <span className={cn("absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform shadow-sm", fx.enabled ? "translate-x-4" : "translate-x-0")} />
                       </button>
                       <span className={cn("text-[9px] uppercase tracking-wider w-14 shrink-0 font-medium", fx.enabled ? "text-[#D1D1D1]" : "text-[#444]")}>{label}</span>
                       <input type="range" min={0} max={100} value={Math.round(fx.wet * 100)}

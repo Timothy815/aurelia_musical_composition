@@ -12,13 +12,28 @@ const DYNAMIC_VELOCITY: Record<string, number> = {
 function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.ToneAudioNode } {
   switch (preset) {
     case 'guitar': {
-      // Karplus-Strong plucked string synthesis
-      const synth = new Tone.PolySynth(Tone.PluckSynth as any, {
-        attackNoise: 2,
-        dampening: 4000,
-        resonance: 0.96,
-      } as any);
-      return { synth, chain: synth };
+      // PluckSynth (Karplus-Strong) — cannot go in PolySynth because it extends
+      // Instrument, not Synth. Use a round-robin voice pool instead.
+      const NUM_VOICES = 6;
+      const voices = Array.from({ length: NUM_VOICES }, () =>
+        new Tone.PluckSynth({ attackNoise: 1.5, dampening: 4500, resonance: 0.97 } as any)
+      );
+      const gain = new Tone.Gain(1);
+      voices.forEach(v => v.connect(gain));
+      let vi = 0;
+      const synth = {
+        triggerAttack: (note: string | string[], time?: any) => {
+          const notes = Array.isArray(note) ? note : [note];
+          notes.forEach(n => { voices[vi % NUM_VOICES].triggerAttack(n, time ?? Tone.now()); vi++; });
+        },
+        triggerRelease: (_note?: any) => {},
+        triggerAttackRelease: (note: string | string[], _dur?: any, time?: any, _vel?: any) => {
+          const notes = Array.isArray(note) ? note : [note];
+          notes.forEach(n => { voices[vi % NUM_VOICES].triggerAttack(n, time ?? Tone.now()); vi++; });
+        },
+        dispose: () => { voices.forEach(v => { try { v.dispose(); } catch (_) {} }); gain.dispose(); },
+      };
+      return { synth, chain: gain };
     }
     case 'strings': {
       // AMSynth with slow attack + chorus + short reverb for lush strings
@@ -156,17 +171,20 @@ class AudioEngine {
 
         (this.fxFuzz as any).wet.value = 0;
 
-        // Chain: masterBus → fuzz → overdrive → phaser → chorus → flanger → tremolo → delay → reverb → dest
-        this.masterBus
-          .connect(this.fxFuzz!)
-          .connect(this.fxOverdrive!)
-          .connect(this.fxPhaser!)
-          .connect(this.fxChorus!)
-          .connect(this.fxFlanger!)
-          .connect(this.fxTremolo!)
-          .connect(this.fxDelay!)
-          .connect(this.fxReverb!)
-          .toDestination();
+        // Chain in series: masterBus → fuzz → overdrive → phaser → chorus → flanger → tremolo → delay → reverb → dest
+        // NOTE: .connect() returns `this` (the source), so chaining it wires everything in parallel.
+        // .chain() wires nodes in series as expected.
+        this.masterBus.chain(
+          this.fxFuzz!,
+          this.fxOverdrive!,
+          this.fxPhaser!,
+          this.fxChorus!,
+          this.fxFlanger!,
+          this.fxTremolo!,
+          this.fxDelay!,
+          this.fxReverb!,
+          Tone.getDestination()
+        );
 
         this.realtimeFallback = new Tone.PolySynth(Tone.Synth, {
           oscillator: { type: 'triangle' as any },
