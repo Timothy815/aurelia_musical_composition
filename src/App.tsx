@@ -92,9 +92,10 @@ const INSTRUMENT_LABELS: Record<InstrumentPreset, string> = {
   piano: 'Piano', guitar: 'Guitar', strings: 'Strings', brass: 'Brass',
   bass: 'Bass', flute: 'Flute', organ: 'Organ', synth: 'Synth'
 };
+const TRACK_COLORS = ['#D4AF37', '#4D96FF', '#FF6B6B', '#4ECDC4', '#95E06C', '#FF8C42', '#C77DFF'];
 
 const DEFAULT_TRACK: TrackData = {
-  id: 'track-1', name: 'Piano', instrument: 'piano', notes: []
+  id: 'track-1', name: 'Piano', instrument: 'piano', notes: [], color: TRACK_COLORS[0]
 };
 
 const DEFAULT_SONG: SongData = {
@@ -114,6 +115,7 @@ export default function App() {
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [playMode, setPlayMode] = useState(true);
+  const [activeTrackIndex, setActiveTrackIndex] = useState(0);
   const [metronomeStatus, setMetronomeStatus] = useState(false);
   const [activeNotes, setActiveNotes] = useState<Set<string>>(new Set());
   const [playingNotes, setPlayingNotes] = useState<Set<string>>(new Set());
@@ -333,7 +335,8 @@ export default function App() {
         }
         newTracks[trackIdx] = { ...track, notes: newNotes };
       } else {
-        const track = newTracks[0];
+        const tIdx = Math.min(activeTrackIndex, newTracks.length - 1);
+        const track = newTracks[tIdx];
         let appendBeat = 0;
         if (track.notes.length > 0) {
           appendBeat = Math.max(...track.notes.map(n => n.start + n.duration));
@@ -346,7 +349,7 @@ export default function App() {
             newNotes.push({ id: newIds[i], pitch, start: appendBeat, duration: effectiveDuration, isRest: false, voice: effectiveVoice, dynamic: effectiveDynamic, articulation: effectiveArtic });
           });
         }
-        newTracks[0] = { ...track, notes: newNotes };
+        newTracks[tIdx] = { ...track, notes: newNotes };
       }
 
       return { ...prev, tracks: newTracks };
@@ -368,7 +371,7 @@ export default function App() {
     } else {
       setSelectedNoteIds(new Set());
     }
-  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSong, setSelectedNoteIds, selectedNoteIds, song, harmonyMode, lastChord]);
+  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSong, setSelectedNoteIds, selectedNoteIds, song, harmonyMode, lastChord, activeTrackIndex]);
 
   const initMidi = useCallback(async () => {
     if (!('requestMIDIAccess' in navigator)) {
@@ -491,21 +494,23 @@ export default function App() {
     audio.stop();
     audio.setMetronome(metronomeStatus, song.timeSignature);
 
-    // Append recorded notes to first track after existing content
+    // Append recorded notes to active track after existing content
     if (recordedMidiNotes.current.length > 0) {
       const notes = [...recordedMidiNotes.current].sort((a, b) => a.start - b.start);
+      const tIdx = activeTrackIndex;
       setSong(prev => {
-        const track = prev.tracks[0];
+        const resolvedIdx = Math.min(tIdx, prev.tracks.length - 1);
+        const track = prev.tracks[resolvedIdx];
         const existingMax = track.notes.length > 0
           ? Math.max(...track.notes.map(n => n.start + n.duration)) : 0;
         const shifted = notes.map(n => ({ ...n, id: generateId(), start: n.start + existingMax }));
         const newTracks = [...prev.tracks];
-        newTracks[0] = { ...track, notes: [...track.notes, ...shifted] };
+        newTracks[resolvedIdx] = { ...track, notes: [...track.notes, ...shifted] };
         return { ...prev, tracks: newTracks };
       });
       recordedMidiNotes.current = [];
     }
-  }, [metronomeStatus, song.timeSignature, setSong]);
+  }, [metronomeStatus, song.timeSignature, setSong, activeTrackIndex]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -1125,11 +1130,12 @@ export default function App() {
               <button
                 className="p-1 hover:text-[#D4AF37] hover:bg-[#1A1A1C] rounded text-[#8E8E93] transition-colors"
                 onClick={() => {
-                  const num = song.tracks.length + 1;
-                  setSong(s => ({
-                    ...s,
-                    tracks: [...s.tracks, { id: generateId(), name: `Track ${num}`, instrument: 'piano' as InstrumentPreset, notes: [] }]
-                  }));
+                  setSong(s => {
+                    const num = s.tracks.length + 1;
+                    const color = TRACK_COLORS[s.tracks.length % TRACK_COLORS.length];
+                    return { ...s, tracks: [...s.tracks, { id: generateId(), name: `Track ${num}`, instrument: 'piano' as InstrumentPreset, notes: [], color }] };
+                  });
+                  setActiveTrackIndex(song.tracks.length);
                 }}
                 title="Add Track"
               >
@@ -1138,25 +1144,34 @@ export default function App() {
             </div>
             <div className="space-y-2 overflow-y-auto custom-scrollbar">
               {song.tracks.map((track, i) => (
-                <div key={track.id} className={cn(
-                  "group relative rounded px-2 py-1.5 transition-colors border-l-2",
-                  i === 0 ? "bg-[#1A1A1C] border-[#D4AF37]" : "border-transparent hover:bg-[#151517]"
-                )}>
+                <div
+                  key={track.id}
+                  onClick={() => setActiveTrackIndex(i)}
+                  className={cn(
+                    "group relative rounded px-2 py-1.5 transition-colors border-l-2 cursor-pointer",
+                    i === activeTrackIndex ? "bg-[#1A1A1C]" : "border-transparent hover:bg-[#151517]"
+                  )}
+                  style={{ borderLeftColor: i === activeTrackIndex ? (track.color ?? '#D4AF37') : 'transparent' }}
+                >
                   <div className="flex justify-between items-center">
-                    <input
-                      value={track.name}
-                      onChange={e => {
-                        const newTracks = [...song.tracks];
-                        newTracks[i] = { ...track, name: e.target.value };
-                        setSong({ ...song, tracks: newTracks });
-                      }}
-                      className="bg-transparent border-none outline-none focus:ring-0 text-xs w-28 truncate text-inherit"
-                    />
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="shrink-0 w-2 h-2 rounded-full" style={{ backgroundColor: track.color ?? '#D4AF37' }} />
+                      <input
+                        value={track.name}
+                        onChange={e => {
+                          const newTracks = [...song.tracks];
+                          newTracks[i] = { ...track, name: e.target.value };
+                          setSong({ ...song, tracks: newTracks });
+                        }}
+                        onClick={e => e.stopPropagation()}
+                        className="bg-transparent border-none outline-none focus:ring-0 text-xs w-24 truncate text-inherit"
+                      />
+                    </div>
                     <div className="flex items-center gap-1">
                       <span className="text-[9px] text-[#555] group-hover:hidden">{track.notes.length}n</span>
                       <button
                         className="hidden group-hover:block text-red-400 hover:text-red-500 p-0.5 rounded"
-                        onClick={e => { e.stopPropagation(); if (song.tracks.length > 1) setSong(s => ({ ...s, tracks: s.tracks.filter(t => t.id !== track.id) })); }}
+                        onClick={e => { e.stopPropagation(); if (song.tracks.length > 1) { setSong(s => ({ ...s, tracks: s.tracks.filter(t => t.id !== track.id) })); setActiveTrackIndex(a => Math.min(a, song.tracks.length - 2)); } }}
                         title="Remove"
                       >
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>

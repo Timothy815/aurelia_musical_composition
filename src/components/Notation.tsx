@@ -11,7 +11,7 @@ import {
 import { SongData, NoteData, DynamicMarking, ArticulationMarking, InstrumentPreset } from '../types';
 import { generateId, cn } from '../lib/utils';
 
-const PITCHES = ['B5', 'A5', 'G5', 'F5', 'E5', 'D5', 'C5', 'B4', 'A4', 'G4', 'F4', 'E4', 'D4', 'C4', 'B3', 'A3', 'G3', 'F3', 'E3', 'D3', 'C3', 'B2', 'A2', 'G2', 'F2', 'E2'];
+const PITCHES = ['B5', 'A5', 'G5', 'F5', 'E5', 'D5', 'C5', 'B4', 'A4', 'G4', 'F4', 'E4', 'D4', 'C4', 'B3', 'A3', 'G3', 'F3', 'E3', 'D3', 'C3', 'B2', 'A2', 'G2', 'F2', 'E2', 'D2', 'C2', 'B1', 'A1', 'G1', 'F1', 'E1'];
 const P8 = 32; // container padding (p-8 = 2rem = 32px)
 
 // Dimensions for each chord diagram box

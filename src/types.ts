@@ -23,6 +23,7 @@ export interface TrackData {
   volume?: number;  // 0–1, default 1
   muted?: boolean;
   solo?: boolean;
+  color?: string;   // hex accent color for this track
 }
 
 export interface TempoChange {
