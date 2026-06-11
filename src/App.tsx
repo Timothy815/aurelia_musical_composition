@@ -153,7 +153,11 @@ export default function App() {
   const midiAccessRef = useRef<MIDIAccess | null>(null);
 
   useEffect(() => {
-    const initFn = () => { audio.init().catch(console.error); };
+    const initFn = () => {
+      audio.init().then(() => {
+        if (audio.sampler?.loaded) setPianoReady(true);
+      }).catch(console.error);
+    };
     // Start init on any user gesture so audio is ready before the first note
     window.addEventListener('mousedown', initFn, { once: true });
     window.addEventListener('keydown', initFn, { once: true });
@@ -161,6 +165,9 @@ export default function App() {
     audio.onNotePlay = (p) => setPlayingNotes(prev => { const n = new Set(prev); n.add(p); return n; });
     audio.onNoteStop = (p) => setPlayingNotes(prev => { const n = new Set(prev); n.delete(p); return n; });
     audio.onSamplerLoad = () => setPianoReady(true);
+    // Catch the case where the sampler already finished loading before this
+    // effect ran (e.g. hot-reload keeps the audio singleton but resets state)
+    if (audio.sampler?.loaded) setPianoReady(true);
     return () => {
       window.removeEventListener('mousedown', initFn);
       window.removeEventListener('keydown', initFn);
