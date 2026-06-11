@@ -355,7 +355,7 @@ export default function App() {
       );
       setSelectedNoteIds(nextNotes.length > 0 ? new Set(nextNotes.map(n => n.id)) : new Set());
     } else {
-      setSelectedNoteIds(new Set(newIds));
+      setSelectedNoteIds(new Set());
     }
   }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSong, setSelectedNoteIds, selectedNoteIds, song, harmonyMode]);
 
@@ -955,7 +955,19 @@ export default function App() {
                 {(['pp', 'p', 'mp', 'mf', 'f', 'ff'] as DynamicMarking[]).map(d => (
                   <div
                     key={d}
-                    onClick={() => setSelectedDynamic(prev => prev === d ? null : d)}
+                    onClick={() => {
+                      const next = selectedDynamic === d ? null : d;
+                      setSelectedDynamic(next);
+                      if (selectedNoteIds.size > 0 && !playMode) {
+                        setSong(prev => ({
+                          ...prev,
+                          tracks: prev.tracks.map(t => ({
+                            ...t,
+                            notes: t.notes.map(n => selectedNoteIds.has(n.id) ? { ...n, dynamic: next ?? undefined } : n)
+                          }))
+                        }));
+                      }
+                    }}
                     className={cn(
                       "flex-1 min-w-[28px] bg-[#151517] border p-1 flex items-center justify-center cursor-pointer transition-colors select-none rounded text-[10px] font-bold italic",
                       selectedDynamic === d ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
@@ -972,7 +984,19 @@ export default function App() {
                 {([['staccato', '·'], ['accent', '>'], ['tenuto', '—']] as [ArticulationMarking, string][]).map(([a, sym]) => (
                   <div
                     key={a}
-                    onClick={() => setSelectedArticulation(prev => prev === a ? null : a)}
+                    onClick={() => {
+                      const next = selectedArticulation === a ? null : a;
+                      setSelectedArticulation(next);
+                      if (selectedNoteIds.size > 0 && !playMode) {
+                        setSong(prev => ({
+                          ...prev,
+                          tracks: prev.tracks.map(t => ({
+                            ...t,
+                            notes: t.notes.map(n => selectedNoteIds.has(n.id) ? { ...n, articulation: next ?? undefined } : n)
+                          }))
+                        }));
+                      }
+                    }}
                     className={cn(
                       "flex-1 bg-[#151517] border p-1.5 flex flex-col items-center justify-center cursor-pointer transition-colors select-none rounded",
                       selectedArticulation === a ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
