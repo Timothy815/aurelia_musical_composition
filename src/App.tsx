@@ -138,6 +138,7 @@ export default function App() {
   const [effectsSettings, setEffectsSettings] = useState<EffectsSettings>(DEFAULT_EFFECTS);
   const [showEffects, setShowEffects] = useState(false);
   const recordingClickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [showSidebar, setShowSidebar] = useState(true);
   const [showTempoChanges, setShowTempoChanges] = useState(false);
   const [showRepeats, setShowRepeats] = useState(false);
   const [newTcMeasure, setNewTcMeasure] = useState('1');
@@ -840,8 +841,15 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden">
 
         {/* Left Sidebar */}
-        <div className="w-64 border-r border-[#1F1F21] bg-[#0F0F10] flex flex-col z-10 shrink-0">
+        <div className={`shrink-0 border-r border-[#1F1F21] bg-[#0F0F10] flex flex-col z-10 overflow-hidden transition-[width] duration-200 relative ${showSidebar ? 'w-64' : 'w-0'}`}>
           <div className="p-4 flex flex-col flex-1 overflow-y-auto custom-scrollbar">
+            <div className="flex justify-end -mt-1 -mr-1 mb-2">
+              <button
+                onClick={() => setShowSidebar(false)}
+                className="text-[#444] hover:text-white text-[10px] rounded hover:bg-[#1A1A1C] px-1.5 py-0.5 transition-colors"
+                title="Collapse panel"
+              >◀</button>
+            </div>
             <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-4">Notation Elements</h2>
             <div className="grid grid-cols-2 gap-2">
               {[
@@ -1240,119 +1248,122 @@ export default function App() {
               );
             })()}
           </div>
-        </div>
-
-        {/* Tempo Changes */}
-        <div className="border-t border-[#1F1F21] shrink-0">
-          <div className="px-4 pt-3 pb-2">
-            <button className="flex justify-between items-center w-full" onClick={() => setShowTempoChanges(v => !v)}>
-              <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666]">Tempo Changes</h2>
-              <span className="text-[#555] text-[10px]">{showTempoChanges ? '▲' : '▼'}</span>
-            </button>
+          <div className="border-t border-[#1F1F21] shrink-0">
+            <div className="px-4 pt-3 pb-2">
+              <button className="flex justify-between items-center w-full" onClick={() => setShowTempoChanges(v => !v)}>
+                <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666]">Tempo Changes</h2>
+                <span className="text-[#555] text-[10px]">{showTempoChanges ? '▲' : '▼'}</span>
+              </button>
+            </div>
+            {showTempoChanges && (
+              <div className="px-4 pb-3 space-y-2">
+                {(song.tempoChanges ?? []).length === 0 && (
+                  <p className="text-[9px] text-[#444] italic">No tempo changes added.</p>
+                )}
+                {(song.tempoChanges ?? []).sort((a, b) => a.beat - b.beat).map((tc, idx) => {
+                  const measure = Math.floor(tc.beat / song.timeSignature[0]) + 1;
+                  return (
+                    <div key={idx} className="flex items-center justify-between gap-2 text-[9px] text-[#8E8E93]">
+                      <span>M{measure} → <span className="text-[#D4AF37] font-bold">{Math.round(tc.bpm)} BPM</span></span>
+                      <button
+                        onClick={() => setSong(s => ({ ...s, tempoChanges: (s.tempoChanges ?? []).filter((_, i) => i !== idx) }))}
+                        className="text-red-500 hover:text-red-400 px-1"
+                      >✕</button>
+                    </div>
+                  );
+                })}
+                <div className="flex items-center gap-1 pt-1 border-t border-[#151517]">
+                  <span className="text-[8px] text-[#444] shrink-0">M</span>
+                  <input
+                    type="number" min={1} value={newTcMeasure}
+                    onChange={e => setNewTcMeasure(e.target.value)}
+                    className="w-10 bg-[#0F0F10] border border-[#222] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none"
+                  />
+                  <input
+                    type="number" min={20} max={300} value={newTcBpm}
+                    onChange={e => setNewTcBpm(e.target.value)}
+                    className="w-12 bg-[#0F0F10] border border-[#222] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none"
+                    placeholder="BPM"
+                  />
+                  <span className="text-[8px] text-[#444] shrink-0">BPM</span>
+                  <button
+                    onClick={() => {
+                      const measure = Math.max(1, parseInt(newTcMeasure) || 1);
+                      const bpm = Math.max(20, Math.min(300, parseInt(newTcBpm) || 120));
+                      const beat = (measure - 1) * song.timeSignature[0];
+                      setSong(s => ({
+                        ...s,
+                        tempoChanges: [...(s.tempoChanges ?? []).filter(tc => tc.beat !== beat), { beat, bpm }]
+                          .sort((a, b) => a.beat - b.beat)
+                      }));
+                    }}
+                    className="ml-auto text-[9px] px-2 py-0.5 rounded bg-[#1A1A1C] border border-[#2A2A2D] text-[#8E8E93] hover:text-white hover:border-[#444] transition-colors"
+                  >Add</button>
+                </div>
+              </div>
+            )}
           </div>
-          {showTempoChanges && (
-            <div className="px-4 pb-3 space-y-2">
-              {(song.tempoChanges ?? []).length === 0 && (
-                <p className="text-[9px] text-[#444] italic">No tempo changes added.</p>
-              )}
-              {(song.tempoChanges ?? []).sort((a, b) => a.beat - b.beat).map((tc, idx) => {
-                const measure = Math.floor(tc.beat / song.timeSignature[0]) + 1;
-                return (
+          <div className="border-t border-[#1F1F21] shrink-0">
+            <div className="px-4 pt-3 pb-2">
+              <button className="flex justify-between items-center w-full" onClick={() => setShowRepeats(v => !v)}>
+                <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666]">Repeat Signs</h2>
+                <span className="text-[#555] text-[10px]">{showRepeats ? '▲' : '▼'}</span>
+              </button>
+            </div>
+            {showRepeats && (
+              <div className="px-4 pb-3 space-y-2">
+                {(song.repeats ?? []).length === 0 && (
+                  <p className="text-[9px] text-[#444] italic">No repeat signs added.</p>
+                )}
+                {(song.repeats ?? []).sort((a, b) => a.measure - b.measure || (a.type === 'start' ? -1 : 1)).map((r, idx) => (
                   <div key={idx} className="flex items-center justify-between gap-2 text-[9px] text-[#8E8E93]">
-                    <span>M{measure} → <span className="text-[#D4AF37] font-bold">{Math.round(tc.bpm)} BPM</span></span>
+                    <span>M{r.measure} <span className={r.type === 'start' ? 'text-[#4488FF]' : 'text-[#D4AF37]'}>
+                      {r.type === 'start' ? '|:' : ':|'}
+                    </span></span>
                     <button
-                      onClick={() => setSong(s => ({ ...s, tempoChanges: (s.tempoChanges ?? []).filter((_, i) => i !== idx) }))}
+                      onClick={() => setSong(s => ({ ...s, repeats: (s.repeats ?? []).filter((_, i) => i !== idx) }))}
                       className="text-red-500 hover:text-red-400 px-1"
                     >✕</button>
                   </div>
-                );
-              })}
-              <div className="flex items-center gap-1 pt-1 border-t border-[#151517]">
-                <span className="text-[8px] text-[#444] shrink-0">M</span>
-                <input
-                  type="number" min={1} value={newTcMeasure}
-                  onChange={e => setNewTcMeasure(e.target.value)}
-                  className="w-10 bg-[#0F0F10] border border-[#222] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none"
-                />
-                <input
-                  type="number" min={20} max={300} value={newTcBpm}
-                  onChange={e => setNewTcBpm(e.target.value)}
-                  className="w-12 bg-[#0F0F10] border border-[#222] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none"
-                  placeholder="BPM"
-                />
-                <span className="text-[8px] text-[#444] shrink-0">BPM</span>
-                <button
-                  onClick={() => {
-                    const measure = Math.max(1, parseInt(newTcMeasure) || 1);
-                    const bpm = Math.max(20, Math.min(300, parseInt(newTcBpm) || 120));
-                    const beat = (measure - 1) * song.timeSignature[0];
-                    setSong(s => ({
-                      ...s,
-                      tempoChanges: [...(s.tempoChanges ?? []).filter(tc => tc.beat !== beat), { beat, bpm }]
-                        .sort((a, b) => a.beat - b.beat)
-                    }));
-                  }}
-                  className="ml-auto text-[9px] px-2 py-0.5 rounded bg-[#1A1A1C] border border-[#2A2A2D] text-[#8E8E93] hover:text-white hover:border-[#444] transition-colors"
-                >Add</button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Repeat Signs */}
-        <div className="border-t border-[#1F1F21] shrink-0">
-          <div className="px-4 pt-3 pb-2">
-            <button className="flex justify-between items-center w-full" onClick={() => setShowRepeats(v => !v)}>
-              <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666]">Repeat Signs</h2>
-              <span className="text-[#555] text-[10px]">{showRepeats ? '▲' : '▼'}</span>
-            </button>
-          </div>
-          {showRepeats && (
-            <div className="px-4 pb-3 space-y-2">
-              {(song.repeats ?? []).length === 0 && (
-                <p className="text-[9px] text-[#444] italic">No repeat signs added.</p>
-              )}
-              {(song.repeats ?? []).sort((a, b) => a.measure - b.measure || (a.type === 'start' ? -1 : 1)).map((r, idx) => (
-                <div key={idx} className="flex items-center justify-between gap-2 text-[9px] text-[#8E8E93]">
-                  <span>M{r.measure} <span className={r.type === 'start' ? 'text-[#4488FF]' : 'text-[#D4AF37]'}>
-                    {r.type === 'start' ? '|:' : ':|'}
-                  </span></span>
+                ))}
+                <div className="flex items-center gap-1 pt-1 border-t border-[#151517]">
+                  <span className="text-[8px] text-[#444] shrink-0">M</span>
+                  <input
+                    type="number" min={1} value={newRepeatMeasure}
+                    onChange={e => setNewRepeatMeasure(e.target.value)}
+                    className="w-10 bg-[#0F0F10] border border-[#222] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none"
+                  />
+                  <select
+                    value={newRepeatType}
+                    onChange={e => setNewRepeatType(e.target.value as 'start' | 'end')}
+                    className="bg-[#0F0F10] border border-[#222] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none cursor-pointer"
+                  >
+                    <option value="start">Start (|:)</option>
+                    <option value="end">End (:|)</option>
+                  </select>
                   <button
-                    onClick={() => setSong(s => ({ ...s, repeats: (s.repeats ?? []).filter((_, i) => i !== idx) }))}
-                    className="text-red-500 hover:text-red-400 px-1"
-                  >✕</button>
+                    onClick={() => {
+                      const measure = Math.max(1, parseInt(newRepeatMeasure) || 1);
+                      setSong(s => ({
+                        ...s,
+                        repeats: [...(s.repeats ?? []).filter(r => !(r.measure === measure && r.type === newRepeatType)), { measure, type: newRepeatType }]
+                          .sort((a, b) => a.measure - b.measure)
+                      }));
+                    }}
+                    className="ml-auto text-[9px] px-2 py-0.5 rounded bg-[#1A1A1C] border border-[#2A2A2D] text-[#8E8E93] hover:text-white hover:border-[#444] transition-colors"
+                  >Add</button>
                 </div>
-              ))}
-              <div className="flex items-center gap-1 pt-1 border-t border-[#151517]">
-                <span className="text-[8px] text-[#444] shrink-0">M</span>
-                <input
-                  type="number" min={1} value={newRepeatMeasure}
-                  onChange={e => setNewRepeatMeasure(e.target.value)}
-                  className="w-10 bg-[#0F0F10] border border-[#222] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none"
-                />
-                <select
-                  value={newRepeatType}
-                  onChange={e => setNewRepeatType(e.target.value as 'start' | 'end')}
-                  className="bg-[#0F0F10] border border-[#222] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none cursor-pointer"
-                >
-                  <option value="start">Start (|:)</option>
-                  <option value="end">End (:|)</option>
-                </select>
-                <button
-                  onClick={() => {
-                    const measure = Math.max(1, parseInt(newRepeatMeasure) || 1);
-                    setSong(s => ({
-                      ...s,
-                      repeats: [...(s.repeats ?? []).filter(r => !(r.measure === measure && r.type === newRepeatType)), { measure, type: newRepeatType }]
-                        .sort((a, b) => a.measure - b.measure)
-                    }));
-                  }}
-                  className="ml-auto text-[9px] px-2 py-0.5 rounded bg-[#1A1A1C] border border-[#2A2A2D] text-[#8E8E93] hover:text-white hover:border-[#444] transition-colors"
-                >Add</button>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
+        {!showSidebar && (
+          <button
+            onClick={() => setShowSidebar(true)}
+            className="shrink-0 self-start mt-3 bg-[#0F0F10] border border-l-0 border-[#1F1F21] text-[#555] hover:text-white text-[10px] px-1.5 py-4 rounded-r z-10 transition-colors"
+            title="Expand panel"
+          >▶</button>
+        )}
 
         {/* Notation View */}
         <main className="flex-1 overflow-auto bg-[#050506] relative" id="notation-render-container">
