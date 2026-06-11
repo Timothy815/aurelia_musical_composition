@@ -10,12 +10,21 @@ import { Notation } from './components/Notation';
 import { exportToMidi, exportToPdf, exportToMusicXML, saveFile, loadFile } from './lib/export';
 
 // ── History reducer for undo/redo ──────────────────────────────────────────
-type HistoryState = { past: SongData[]; present: SongData; future: SongData[] };
+type TrackHistory = { past: NoteData[][], future: NoteData[][] };
+type HistoryState = {
+  past: SongData[];
+  present: SongData;
+  future: SongData[];
+  trackHistories: Record<string, TrackHistory>;
+};
 type HistoryAction =
   | { type: 'SET'; payload: SongData | ((s: SongData) => SongData) }
+  | { type: 'SET_TRACK_NOTES'; trackId: string; notes: NoteData[] | ((prev: NoteData[]) => NoteData[]) }
   | { type: 'PATCH_META'; payload: { title?: string; composer?: string } }
   | { type: 'UNDO' }
-  | { type: 'REDO' };
+  | { type: 'REDO' }
+  | { type: 'UNDO_TRACK'; trackId: string }
+  | { type: 'REDO_TRACK'; trackId: string };
 
 function historyReducer(state: HistoryState, action: HistoryAction): HistoryState {
   switch (action.type) {
@@ -23,9 +32,28 @@ function historyReducer(state: HistoryState, action: HistoryAction): HistoryStat
       const next = typeof action.payload === 'function' ? action.payload(state.present) : action.payload;
       if (next === state.present) return state;
       return {
+        ...state,
         past: [...state.past.slice(-49), state.present],
         present: next,
         future: []
+      };
+    }
+    case 'SET_TRACK_NOTES': {
+      const trackIdx = state.present.tracks.findIndex(t => t.id === action.trackId);
+      if (trackIdx === -1) return state;
+      const prevNotes = state.present.tracks[trackIdx].notes;
+      const nextNotes = typeof action.notes === 'function' ? action.notes(prevNotes) : action.notes;
+      if (nextNotes === prevNotes) return state;
+      const newTracks = [...state.present.tracks];
+      newTracks[trackIdx] = { ...newTracks[trackIdx], notes: nextNotes };
+      const prevHistory = state.trackHistories[action.trackId] ?? { past: [], future: [] };
+      return {
+        ...state,
+        present: { ...state.present, tracks: newTracks },
+        trackHistories: {
+          ...state.trackHistories,
+          [action.trackId]: { past: [...prevHistory.past.slice(-49), prevNotes], future: [] }
+        }
       };
     }
     case 'PATCH_META':
@@ -33,6 +61,7 @@ function historyReducer(state: HistoryState, action: HistoryAction): HistoryStat
     case 'UNDO':
       if (state.past.length === 0) return state;
       return {
+        ...state,
         past: state.past.slice(0, -1),
         present: state.past[state.past.length - 1],
         future: [state.present, ...state.future]
@@ -40,10 +69,47 @@ function historyReducer(state: HistoryState, action: HistoryAction): HistoryStat
     case 'REDO':
       if (state.future.length === 0) return state;
       return {
+        ...state,
         past: [...state.past, state.present],
         present: state.future[0],
         future: state.future.slice(1)
       };
+    case 'UNDO_TRACK': {
+      const history = state.trackHistories[action.trackId];
+      if (!history || history.past.length === 0) return state;
+      const trackIdx = state.present.tracks.findIndex(t => t.id === action.trackId);
+      if (trackIdx === -1) return state;
+      const prevNotes = history.past[history.past.length - 1];
+      const currentNotes = state.present.tracks[trackIdx].notes;
+      const newTracks = [...state.present.tracks];
+      newTracks[trackIdx] = { ...newTracks[trackIdx], notes: prevNotes };
+      return {
+        ...state,
+        present: { ...state.present, tracks: newTracks },
+        trackHistories: {
+          ...state.trackHistories,
+          [action.trackId]: { past: history.past.slice(0, -1), future: [currentNotes, ...history.future] }
+        }
+      };
+    }
+    case 'REDO_TRACK': {
+      const history = state.trackHistories[action.trackId];
+      if (!history || history.future.length === 0) return state;
+      const trackIdx = state.present.tracks.findIndex(t => t.id === action.trackId);
+      if (trackIdx === -1) return state;
+      const nextNotes = history.future[0];
+      const currentNotes = state.present.tracks[trackIdx].notes;
+      const newTracks = [...state.present.tracks];
+      newTracks[trackIdx] = { ...newTracks[trackIdx], notes: nextNotes };
+      return {
+        ...state,
+        present: { ...state.present, tracks: newTracks },
+        trackHistories: {
+          ...state.trackHistories,
+          [action.trackId]: { past: [...history.past, currentNotes], future: history.future.slice(1) }
+        }
+      };
+    }
   }
 }
 
@@ -105,12 +171,16 @@ const DEFAULT_SONG: SongData = {
 // ── App ────────────────────────────────────────────────────────────────────
 export default function App() {
   const [histState, dispatch] = useReducer(historyReducer, {
-    past: [], present: DEFAULT_SONG, future: []
+    past: [], present: DEFAULT_SONG, future: [], trackHistories: {}
   });
   const song = histState.present;
 
   const setSong = useCallback((updater: SongData | ((s: SongData) => SongData)) => {
     dispatch({ type: 'SET', payload: updater });
+  }, []);
+
+  const setTrackNotes = useCallback((trackId: string, notes: NoteData[] | ((prev: NoteData[]) => NoteData[])) => {
+    dispatch({ type: 'SET_TRACK_NOTES', trackId, notes });
   }, []);
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -319,13 +389,11 @@ export default function App() {
       }
     }
 
-    setSong(prev => {
-      const newTracks = [...prev.tracks];
-
-      if (insertTarget) {
-        const { trackIdx, beat, duration } = insertTarget;
-        const track = newTracks[trackIdx];
-        const newNotes = [...track.notes];
+    if (insertTarget) {
+      const { trackIdx, beat, duration } = insertTarget;
+      const trackId = song.tracks[trackIdx].id;
+      dispatch({ type: 'SET_TRACK_NOTES', trackId, notes: prevNotes => {
+        const newNotes = [...prevNotes];
         if (effectiveIsRest) {
           newNotes.push({ id: newIds[0], pitch: 'B4', start: beat, duration, isRest: true });
         } else {
@@ -333,15 +401,17 @@ export default function App() {
             newNotes.push({ id: newIds[i], pitch, start: beat, duration, isRest: false, voice: effectiveVoice, dynamic: effectiveDynamic, articulation: effectiveArtic });
           });
         }
-        newTracks[trackIdx] = { ...track, notes: newNotes };
-      } else {
-        const tIdx = Math.min(activeTrackIndex, newTracks.length - 1);
-        const track = newTracks[tIdx];
+        return newNotes;
+      }});
+    } else {
+      const tIdx = Math.min(activeTrackIndex, song.tracks.length - 1);
+      const trackId = song.tracks[tIdx].id;
+      dispatch({ type: 'SET_TRACK_NOTES', trackId, notes: prevNotes => {
         let appendBeat = 0;
-        if (track.notes.length > 0) {
-          appendBeat = Math.max(...track.notes.map(n => n.start + n.duration));
+        if (prevNotes.length > 0) {
+          appendBeat = Math.max(...prevNotes.map(n => n.start + n.duration));
         }
-        const newNotes = [...track.notes];
+        const newNotes = [...prevNotes];
         if (effectiveIsRest) {
           newNotes.push({ id: newIds[0], pitch: 'B4', start: appendBeat, duration: effectiveDuration, isRest: true });
         } else {
@@ -349,11 +419,9 @@ export default function App() {
             newNotes.push({ id: newIds[i], pitch, start: appendBeat, duration: effectiveDuration, isRest: false, voice: effectiveVoice, dynamic: effectiveDynamic, articulation: effectiveArtic });
           });
         }
-        newTracks[tIdx] = { ...track, notes: newNotes };
-      }
-
-      return { ...prev, tracks: newTracks };
-    });
+        return newNotes;
+      }});
+    }
 
     if (!repeating) {
       activeNotes.forEach(p => audio.stopNoteRealtime(p));
@@ -371,7 +439,7 @@ export default function App() {
     } else {
       setSelectedNoteIds(new Set());
     }
-  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSong, setSelectedNoteIds, selectedNoteIds, song, harmonyMode, lastChord, activeTrackIndex]);
+  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSelectedNoteIds, selectedNoteIds, song, harmonyMode, lastChord, activeTrackIndex]);
 
   const initMidi = useCallback(async () => {
     if (!('requestMIDIAccess' in navigator)) {
@@ -519,15 +587,25 @@ export default function App() {
 
       const isMod = e.metaKey || e.ctrlKey;
 
-      // Undo / Redo
+      // Undo / Redo — per-track in Score Mode, global otherwise
       if (isMod && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
-        dispatch({ type: 'UNDO' });
+        const activeTrackId = song.tracks[activeTrackIndex]?.id;
+        if (!playMode && activeTrackId && (histState.trackHistories[activeTrackId]?.past.length ?? 0) > 0) {
+          dispatch({ type: 'UNDO_TRACK', trackId: activeTrackId });
+        } else {
+          dispatch({ type: 'UNDO' });
+        }
         return;
       }
       if (isMod && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         e.preventDefault();
-        dispatch({ type: 'REDO' });
+        const activeTrackId = song.tracks[activeTrackIndex]?.id;
+        if (!playMode && activeTrackId && (histState.trackHistories[activeTrackId]?.future.length ?? 0) > 0) {
+          dispatch({ type: 'REDO_TRACK', trackId: activeTrackId });
+        } else {
+          dispatch({ type: 'REDO' });
+        }
         return;
       }
 
@@ -586,7 +664,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleAppendToScore, selectedNoteIds, song, clipboard, setSong, setSelectedNoteIds]);
+  }, [handleAppendToScore, selectedNoteIds, song, clipboard, setSong, setSelectedNoteIds, histState.trackHistories, activeTrackIndex, playMode]);
 
   const detectedChords = useMemo(() => {
     if (combinedNotes.size === 0) return [];
@@ -653,18 +731,32 @@ export default function App() {
             </div>
           )}
           {/* Undo / Redo */}
+          {(() => {
+            const activeTrackId = song.tracks[activeTrackIndex]?.id;
+            const trackHist = activeTrackId ? histState.trackHistories[activeTrackId] : undefined;
+            const canUndoTrack = !playMode && (trackHist?.past.length ?? 0) > 0;
+            const canRedoTrack = !playMode && (trackHist?.future.length ?? 0) > 0;
+            return (<>
           <button
-            onClick={() => dispatch({ type: 'UNDO' })}
-            disabled={histState.past.length === 0}
+            onClick={() => {
+              if (canUndoTrack && activeTrackId) dispatch({ type: 'UNDO_TRACK', trackId: activeTrackId });
+              else dispatch({ type: 'UNDO' });
+            }}
+            disabled={!canUndoTrack && histState.past.length === 0}
             className="flex items-center justify-center w-7 h-7 rounded bg-[#1A1A1C] hover:bg-[#2A2A2D] text-[#8E8E93] hover:text-white disabled:opacity-30 transition-colors"
             title="Undo (Cmd+Z)"
           ><RotateCcw className="w-3.5 h-3.5" /></button>
           <button
-            onClick={() => dispatch({ type: 'REDO' })}
-            disabled={histState.future.length === 0}
+            onClick={() => {
+              if (canRedoTrack && activeTrackId) dispatch({ type: 'REDO_TRACK', trackId: activeTrackId });
+              else dispatch({ type: 'REDO' });
+            }}
+            disabled={!canRedoTrack && histState.future.length === 0}
             className="flex items-center justify-center w-7 h-7 rounded bg-[#1A1A1C] hover:bg-[#2A2A2D] text-[#8E8E93] hover:text-white disabled:opacity-30 transition-colors"
             title="Redo (Cmd+Shift+Z)"
           ><RotateCw className="w-3.5 h-3.5" /></button>
+          </>);
+          })()}
 
           <div className="w-px h-5 bg-[#1F1F21] mx-1" />
 
@@ -1452,6 +1544,7 @@ export default function App() {
             currentArticulation={selectedArticulation}
             activeTrackIndex={activeTrackIndex}
             onSetActiveTrack={setActiveTrackIndex}
+            onSetTrackNotes={setTrackNotes}
           />
         </main>
 

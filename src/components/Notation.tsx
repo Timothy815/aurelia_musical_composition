@@ -118,6 +118,7 @@ export function Notation({
   currentArticulation,
   activeTrackIndex = 0,
   onSetActiveTrack,
+  onSetTrackNotes,
 }: {
   song: SongData;
   onUpdateSong: (s: SongData | ((s: SongData) => SongData)) => void;
@@ -140,6 +141,7 @@ export function Notation({
   currentArticulation?: ArticulationMarking | null;
   activeTrackIndex?: number;
   onSetActiveTrack?: (tIndex: number) => void;
+  onSetTrackNotes?: (trackId: string, notes: NoteData[] | ((prev: NoteData[]) => NoteData[])) => void;
 }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -175,10 +177,14 @@ export function Notation({
     if (existingIdx !== -1) {
       const removedId = track.notes[existingIdx].id;
       const newNotes = track.notes.filter((_, i) => i !== existingIdx);
-      const newTracks = [...song.tracks];
-      newTracks[tIndex] = { ...track, notes: newNotes };
       setSelectedNoteIds(prev => { const n = new Set(prev); n.delete(removedId); return n; });
-      onUpdateSong({ ...song, tracks: newTracks });
+      if (onSetTrackNotes) {
+        onSetTrackNotes(track.id, newNotes);
+      } else {
+        const newTracks = [...song.tracks];
+        newTracks[tIndex] = { ...track, notes: newNotes };
+        onUpdateSong({ ...song, tracks: newTracks });
+      }
       return;
     }
 
@@ -198,10 +204,14 @@ export function Notation({
       if (onPlayNote) onPlayNote(pitch, song.tracks[tIndex].instrument);
     }
 
-    const newTracks = [...song.tracks];
-    newTracks[tIndex] = { ...track, notes: newNotes };
-    onUpdateSong({ ...song, tracks: newTracks });
-  }, [song, selectedDuration, isDotted, isRest, chordNotes, onPlayNote, onUpdateSong, setSelectedNoteIds, activeVoice]);
+    if (onSetTrackNotes) {
+      onSetTrackNotes(track.id, newNotes);
+    } else {
+      const newTracks = [...song.tracks];
+      newTracks[tIndex] = { ...track, notes: newNotes };
+      onUpdateSong({ ...song, tracks: newTracks });
+    }
+  }, [song, selectedDuration, isDotted, isRest, chordNotes, onPlayNote, onUpdateSong, onSetTrackNotes, setSelectedNoteIds, activeVoice, currentDynamic, currentArticulation]);
 
   const commitDragBox = useCallback((box: DragBox) => {
     const minBeat = Math.min(box.startBeat, box.endBeat);
@@ -344,8 +354,9 @@ export function Notation({
     }
 
     if (e.key === 'Backspace' || e.key === 'Delete') {
-      onUpdateSong(prev => {
-        if (selectedNoteIds.size > 0) {
+      if (selectedNoteIds.size > 0) {
+        // Multi-track deletion — global history
+        onUpdateSong(prev => {
           const allNotes = prev.tracks.flatMap(t => t.notes);
           const deletedMap = new Map<number, number>();
           allNotes.forEach(n => {
@@ -363,20 +374,26 @@ export function Notation({
           });
           setSelectedNoteIds(new Set());
           return changed ? { ...prev, tracks: newTracks } : prev;
+        });
+      } else {
+        // Pop last chord from active track — per-track history
+        const tIdx = (activeTrackIndex < song.tracks.length && song.tracks[activeTrackIndex].notes.length > 0)
+          ? activeTrackIndex
+          : song.tracks.findIndex(t => t.notes.length > 0);
+        if (tIdx === -1) return;
+        const track = song.tracks[tIdx];
+        const last = track.notes[track.notes.length - 1];
+        const newNotes = track.notes.filter(n => Math.abs(n.start - last.start) > 0.001);
+        if (onSetTrackNotes) {
+          onSetTrackNotes(track.id, newNotes);
         } else {
-          // Pop last chord from active track, or fall back to first non-empty track
-          const tIdx = (activeTrackIndex < prev.tracks.length && prev.tracks[activeTrackIndex].notes.length > 0)
-            ? activeTrackIndex
-            : prev.tracks.findIndex(t => t.notes.length > 0);
-          if (tIdx === -1) return prev;
-          const newTracks = [...prev.tracks];
-          const last = newTracks[tIdx].notes[newTracks[tIdx].notes.length - 1];
-          newTracks[tIdx] = { ...newTracks[tIdx], notes: newTracks[tIdx].notes.filter(n => Math.abs(n.start - last.start) > 0.001) };
-          return { ...prev, tracks: newTracks };
+          const newTracks = [...song.tracks];
+          newTracks[tIdx] = { ...track, notes: newNotes };
+          onUpdateSong({ ...song, tracks: newTracks });
         }
-      });
+      }
     }
-  }, [song, selectedNoteIds, onUpdateSong, onPlayNote, setSelectedNoteIds, chordSelectMode, activeTrackIndex]);
+  }, [song, selectedNoteIds, onUpdateSong, onSetTrackNotes, onPlayNote, setSelectedNoteIds, chordSelectMode, activeTrackIndex]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
