@@ -106,7 +106,10 @@ class AudioEngine {
       this._releaseRealtimeNote(pitch);
     }
     this.realtimeNotes.add(pitch);
-    if (this.sampler && this.sampler.loaded) {
+    // Always prefer the sampler — Tone.js silently skips notes whose buffers
+    // haven't finished loading yet, so we get silence (not rubber-band synth)
+    // during the brief loading window and natural piano sound as soon as ready.
+    if (this.sampler) {
       this.sampler.triggerAttack(pitch);
       this.realtimeNoteSynth.set(pitch, 'sampler');
     } else {
