@@ -174,6 +174,7 @@ export default function App() {
   // Stable MIDI message handler — reads mutable state from refs
   const midiMessageHandler = useCallback((e: MIDIMessageEvent) => {
     const data = e.data;
+    if (data.length < 3) return; // clock / active-sensing messages have no note/velocity bytes
     const status = data[0] & 0xF0;
     const midiNote = data[1];
     const velocity = data[2];
@@ -297,11 +298,16 @@ export default function App() {
     try {
       await audio.init();
       const access = await navigator.requestMIDIAccess({ sysex: false });
-      access.inputs.forEach(input => { input.onmidimessage = midiMessageHandler; });
-      access.onstatechange = (e) => {
+      for (const input of access.inputs.values()) {
+        await input.open();
+        input.addEventListener('midimessage', midiMessageHandler);
+      }
+      access.onstatechange = async (e) => {
         const port = (e as MIDIConnectionEvent).port;
         if (port.type === 'input' && port.state === 'connected') {
-          (port as MIDIInput).onmidimessage = midiMessageHandler;
+          const inp = port as MIDIInput;
+          await inp.open();
+          inp.addEventListener('midimessage', midiMessageHandler);
           setMidiDeviceName(port.name ?? 'Unknown');
         }
       };
