@@ -1450,6 +1450,8 @@ export default function App() {
             showGuitarTab={showGuitarTab}
             currentDynamic={selectedDynamic}
             currentArticulation={selectedArticulation}
+            activeTrackIndex={activeTrackIndex}
+            onSetActiveTrack={setActiveTrackIndex}
           />
         </main>
 

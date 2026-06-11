@@ -116,6 +116,8 @@ export function Notation({
   showGuitarTab = false,
   currentDynamic,
   currentArticulation,
+  activeTrackIndex = 0,
+  onSetActiveTrack,
 }: {
   song: SongData;
   onUpdateSong: (s: SongData | ((s: SongData) => SongData)) => void;
@@ -136,6 +138,8 @@ export function Notation({
   showGuitarTab?: boolean;
   currentDynamic?: DynamicMarking | null;
   currentArticulation?: ArticulationMarking | null;
+  activeTrackIndex?: number;
+  onSetActiveTrack?: (tIndex: number) => void;
 }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -360,21 +364,19 @@ export function Notation({
           setSelectedNoteIds(new Set());
           return changed ? { ...prev, tracks: newTracks } : prev;
         } else {
-          let changed = false;
+          // Pop last chord from active track, or fall back to first non-empty track
+          const tIdx = (activeTrackIndex < prev.tracks.length && prev.tracks[activeTrackIndex].notes.length > 0)
+            ? activeTrackIndex
+            : prev.tracks.findIndex(t => t.notes.length > 0);
+          if (tIdx === -1) return prev;
           const newTracks = [...prev.tracks];
-          for (let i = 0; i < newTracks.length; i++) {
-            if (newTracks[i].notes.length > 0) {
-              const last = newTracks[i].notes[newTracks[i].notes.length - 1];
-              newTracks[i] = { ...newTracks[i], notes: newTracks[i].notes.filter(n => Math.abs(n.start - last.start) > 0.001) };
-              changed = true;
-              break;
-            }
-          }
-          return changed ? { ...prev, tracks: newTracks } : prev;
+          const last = newTracks[tIdx].notes[newTracks[tIdx].notes.length - 1];
+          newTracks[tIdx] = { ...newTracks[tIdx], notes: newTracks[tIdx].notes.filter(n => Math.abs(n.start - last.start) > 0.001) };
+          return { ...prev, tracks: newTracks };
         }
       });
     }
-  }, [song, selectedNoteIds, onUpdateSong, onPlayNote, setSelectedNoteIds, chordSelectMode]);
+  }, [song, selectedNoteIds, onUpdateSong, onPlayNote, setSelectedNoteIds, chordSelectMode, activeTrackIndex]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -492,7 +494,11 @@ export function Notation({
                       top: sectionTop,
                       width: notesWidthPerMeasure,
                       height: PITCHES.length * CELL_HEIGHT,
+                      outline: (!chordMode && tIndex === activeTrackIndex)
+                        ? `1px solid ${song.tracks[tIndex]?.color ?? '#D4AF37'}40`
+                        : undefined,
                     }}
+                    onMouseDown={() => { if (!chordMode) onSetActiveTrack?.(tIndex); }}
                   >
                     {PITCHES.map((pitch, rIdx) => (
                       <div key={pitch} className="flex" style={{ height: CELL_HEIGHT }}>
