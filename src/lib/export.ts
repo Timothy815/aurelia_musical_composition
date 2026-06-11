@@ -201,15 +201,48 @@ export function loadFile(): Promise<SongData> {
   });
 }
 
+const GM_PROGRAMS: Record<string, number> = {
+  piano:   1,   // Acoustic Grand Piano
+  guitar:  25,  // Acoustic Guitar (nylon)
+  strings: 49,  // String Ensemble 1
+  brass:   57,  // Trumpet
+  bass:    33,  // Acoustic Bass
+  flute:   74,  // Flute
+  organ:   20,  // Church Organ
+  synth:   81,  // Lead 1 (square)
+};
+
+const KEY_FIFTHS_MIDI: Record<string, number> = {
+  C: 0, G: 1, D: 2, A: 3, E: 4, B: 5, 'F#': 6,
+  F: -1, Bb: -2, Eb: -3, Ab: -4, Db: -5, Gb: -6,
+};
+
+const TICKS_PER_BEAT = 128;
+
 export function exportToMidi(song: SongData) {
   const tracks = song.tracks.map(t => {
     const track = new MidiWriter.Track();
-    track.addEvent(new MidiWriter.ProgramChangeEvent({ instrument: 1 }));
     track.addTrackName(t.name);
     track.setTempo(song.tempo);
 
-    const notesByStart: Record<number, { pitch: string; duration: number }[]> = {};
-    t.notes.forEach(note => {
+    // Time signature and key signature metadata
+    track.addEvent(new MidiWriter.TimeSignatureEvent(
+      song.timeSignature[0],
+      song.timeSignature[1],
+      24, 8
+    ));
+    const sf = KEY_FIFTHS_MIDI[song.keySignature ?? 'C'] ?? 0;
+    track.addEvent(new MidiWriter.KeySignatureEvent(sf, 0));
+
+    // Map instrument to General MIDI program number
+    const program = GM_PROGRAMS[t.instrument] ?? 1;
+    track.addEvent(new MidiWriter.ProgramChangeEvent({ instrument: program }));
+
+    // Convert track volume (0–1) to MIDI velocity (20–100)
+    const velocity = Math.round((t.volume ?? 1) * 80 + 20);
+
+    const notesByStart: Record<number, typeof t.notes> = {};
+    t.notes.filter(n => !n.isRest).forEach(note => {
       if (!notesByStart[note.start]) notesByStart[note.start] = [];
       notesByStart[note.start].push(note);
     });
@@ -218,12 +251,12 @@ export function exportToMidi(song: SongData) {
     const times = Object.keys(notesByStart).map(Number).sort((a, b) => a - b);
     times.forEach(time => {
       const notes = notesByStart[time];
-      const waitBeats = time - currentTick;
-      const waitTicks = waitBeats > 0 ? waitBeats * 128 : 0;
+      const waitTicks = Math.round((time - currentTick) * TICKS_PER_BEAT);
       track.addEvent(new MidiWriter.NoteEvent({
         pitch: notes.map(n => n.pitch),
-        duration: `T${Math.round(notes[0].duration * 128)}`,
-        wait: waitTicks > 0 ? `T${waitTicks}` : 0
+        duration: `T${Math.round(notes[0].duration * TICKS_PER_BEAT)}`,
+        wait: waitTicks > 0 ? `T${waitTicks}` : 0,
+        velocity,
       }));
       currentTick = time;
     });
