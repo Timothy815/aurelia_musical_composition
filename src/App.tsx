@@ -12,7 +12,7 @@ import { exportToMidi, exportToPdf, exportToMusicXML, saveFile, loadFile } from 
 // ── History reducer for undo/redo ──────────────────────────────────────────
 type HistoryState = { past: SongData[]; present: SongData; future: SongData[] };
 type HistoryAction =
-  | { type: 'SET'; payload: SongData }
+  | { type: 'SET'; payload: SongData | ((s: SongData) => SongData) }
   | { type: 'PATCH_META'; payload: { title?: string; composer?: string } }
   | { type: 'UNDO' }
   | { type: 'REDO' };
@@ -20,10 +20,11 @@ type HistoryAction =
 function historyReducer(state: HistoryState, action: HistoryAction): HistoryState {
   switch (action.type) {
     case 'SET': {
-      if (JSON.stringify(action.payload) === JSON.stringify(state.present)) return state;
+      const next = typeof action.payload === 'function' ? action.payload(state.present) : action.payload;
+      if (next === state.present) return state;
       return {
         past: [...state.past.slice(-49), state.present],
-        present: action.payload,
+        present: next,
         future: []
       };
     }
@@ -108,11 +109,8 @@ export default function App() {
   const song = histState.present;
 
   const setSong = useCallback((updater: SongData | ((s: SongData) => SongData)) => {
-    dispatch({
-      type: 'SET',
-      payload: typeof updater === 'function' ? updater(histState.present) : updater
-    });
-  }, [histState.present]);
+    dispatch({ type: 'SET', payload: updater });
+  }, []);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [playMode, setPlayMode] = useState(true);
@@ -752,15 +750,20 @@ export default function App() {
           </button>
           {loopEnabled && (
             <div className="flex items-center gap-1 text-[10px] font-mono text-[#8E8E93]">
+              <span className="text-[#555]">bar</span>
               <input
-                type="number" value={loopStart} min={0}
-                onChange={e => setLoopStart(Math.max(0, parseInt(e.target.value) || 0))}
+                type="number"
+                value={Math.floor(loopStart / song.timeSignature[0]) + 1}
+                min={1}
+                onChange={e => setLoopStart(Math.max(0, (parseInt(e.target.value) - 1 || 0) * song.timeSignature[0]))}
                 className="bg-[#1A1A1C] border border-[#333] rounded w-10 px-1 py-0.5 text-center text-inherit outline-none"
               />
               <span>—</span>
               <input
-                type="number" value={loopEnd} min={1}
-                onChange={e => setLoopEnd(Math.max(1, parseInt(e.target.value) || 8))}
+                type="number"
+                value={Math.ceil(loopEnd / song.timeSignature[0])}
+                min={1}
+                onChange={e => setLoopEnd(Math.max(song.timeSignature[0], (parseInt(e.target.value) || 1) * song.timeSignature[0]))}
                 className="bg-[#1A1A1C] border border-[#333] rounded w-10 px-1 py-0.5 text-center text-inherit outline-none"
               />
             </div>
@@ -1105,12 +1108,12 @@ export default function App() {
               </div>
             </div>
 
-            {(activeNotes.size > 0 || isRest) && (
+            {(activeNotes.size > 0 || isRest || (lastChord !== null && !playMode)) && (
               <button
                 onClick={handleAppendToScore}
                 className="w-full mt-4 bg-[#D4AF37] hover:bg-[#C19E30] text-[#0A0A0B] font-bold uppercase tracking-wider text-[10px] py-2 flex items-center justify-center rounded transition-colors"
               >
-                Add to Score (Enter)
+                {activeNotes.size > 0 || isRest ? 'Add to Score (Enter)' : '↩ Repeat Last (Enter)'}
               </button>
             )}
           </div>
@@ -1404,6 +1407,14 @@ export default function App() {
 
         {/* Notation View */}
         <main className="flex-1 overflow-auto bg-[#050506] relative" id="notation-render-container">
+          <div className={cn(
+            "absolute top-2 right-2 z-20 text-[9px] uppercase tracking-[0.2em] px-2 py-1 rounded border pointer-events-none select-none",
+            playMode
+              ? "text-[#D4AF37]/70 border-[#D4AF37]/20 bg-[#D4AF37]/5"
+              : "text-[#4D96FF]/70 border-[#4D96FF]/20 bg-[#4D96FF]/5"
+          )}>
+            {playMode ? 'Playing Mode' : 'Score Mode'}
+          </div>
           <Notation
             song={song}
             onUpdateSong={setSong}

@@ -486,7 +486,7 @@ export function Notation({
                 return (
                   <div
                     key={`${tIndex}-${rowIdx}-${colIdx}`}
-                    className="absolute z-10 opacity-30 hover:opacity-100 transition-opacity"
+                    className={cn("absolute z-10 transition-opacity", chordMode ? "opacity-0 hover:opacity-100" : "opacity-60 hover:opacity-100")}
                     style={{
                       left: sectionLeft,
                       top: sectionTop,

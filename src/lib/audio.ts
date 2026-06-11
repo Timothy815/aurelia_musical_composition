@@ -187,6 +187,7 @@ class AudioEngine {
   private realtimeFallback: Tone.PolySynth | null = null;
   private initPromise: Promise<void> | null = null;
   private midiActivePitches = new Set<string>();
+  private midiNoteSource = new Map<string, 'sampler' | 'fallback'>();
 
   // ── Master bus + effects chain ───────────────────────────────────────────
   private masterBus: Tone.Gain | null = null;
@@ -363,27 +364,46 @@ class AudioEngine {
   // ── MIDI keyboard ─────────────────────────────────────────────────────────
 
   playMidiNote(pitch: string) {
-    if (!this.initialized || !this.sampler) return;
+    if (!this.initialized) return;
     if (this.midiActivePitches.has(pitch)) {
-      try { this.sampler.triggerRelease(pitch, Tone.now()); } catch (_) {}
+      const src = this.midiNoteSource.get(pitch);
+      try {
+        if (src === 'fallback') this.realtimeFallback?.triggerRelease(pitch, Tone.now());
+        else this.sampler?.triggerRelease(pitch, Tone.now());
+      } catch (_) {}
     }
     this.midiActivePitches.add(pitch);
-    this.sampler.triggerAttack(pitch, Tone.now() + 0.015, 0.8);
+    if (this.sampler) {
+      this.sampler.triggerAttack(pitch, Tone.now() + 0.015, 0.8);
+      this.midiNoteSource.set(pitch, 'sampler');
+    } else {
+      this.realtimeFallback?.triggerAttack(pitch, Tone.now() + 0.015);
+      this.midiNoteSource.set(pitch, 'fallback');
+    }
   }
 
   stopMidiNote(pitch: string) {
-    if (!this.initialized || !this.sampler) return;
+    if (!this.initialized) return;
     this.midiActivePitches.delete(pitch);
-    try { this.sampler.triggerRelease(pitch, Tone.now() + 0.015); } catch (_) {}
+    const src = this.midiNoteSource.get(pitch);
+    this.midiNoteSource.delete(pitch);
+    try {
+      if (src === 'fallback') this.realtimeFallback?.triggerRelease(pitch, Tone.now() + 0.015);
+      else this.sampler?.triggerRelease(pitch, Tone.now() + 0.015);
+    } catch (_) {}
   }
 
   releaseAllMidiNotes() {
-    if (!this.sampler) return;
     const now = Tone.now();
     this.midiActivePitches.forEach(pitch => {
-      try { this.sampler!.triggerRelease(pitch, now); } catch (_) {}
+      const src = this.midiNoteSource.get(pitch);
+      try {
+        if (src === 'fallback') this.realtimeFallback?.triggerRelease(pitch, now);
+        else this.sampler?.triggerRelease(pitch, now);
+      } catch (_) {}
     });
     this.midiActivePitches.clear();
+    this.midiNoteSource.clear();
   }
 
   // ── Preview ───────────────────────────────────────────────────────────────
