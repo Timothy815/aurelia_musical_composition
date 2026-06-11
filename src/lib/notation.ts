@@ -343,6 +343,12 @@ export function renderNotation(
         }
       }
 
+      // Repeat barlines
+      const hasRepStart = song.repeats?.some(r => r.type === 'start' && r.measure - 1 === mIndex);
+      const hasRepEnd   = song.repeats?.some(r => r.type === 'end'   && r.measure - 1 === mIndex);
+      if (hasRepStart) { try { stave.setBegBarType((VF.Barline as any).type.REPEAT_BEGIN); } catch (_) {} }
+      if (hasRepEnd)   { try { stave.setEndBarType((VF.Barline as any).type.REPEAT_END); } catch (_) {} }
+
       stave.setContext(context).draw();
 
       // Grand staff: add bass clef stave and brace connector
@@ -354,6 +360,8 @@ export function renderNotation(
           const ks = song.keySignature;
           if (ks && ks !== 'C') bassStave.addKeySignature(ks);
         }
+        if (hasRepStart) { try { bassStave.setBegBarType((VF.Barline as any).type.REPEAT_BEGIN); } catch (_) {} }
+        if (hasRepEnd)   { try { bassStave.setEndBarType((VF.Barline as any).type.REPEAT_END); } catch (_) {} }
         bassStave.setContext(context).draw();
         if (colIdx === 0) {
           try { const b = new VF.StaveConnector(stave, bassStave); b.setType((VF.StaveConnector as any).type.BRACE); b.setContext(context).draw(); } catch (_) {}
@@ -406,6 +414,20 @@ export function renderNotation(
       try { (context as any).fillText(dyn, noteX, staveY + 58); } catch (_) {}
     });
   });
+  // Tempo change labels above first track stave
+  if (song.tempoChanges?.length) {
+    song.tempoChanges.forEach(tc => {
+      const mIdx = Math.floor(tc.beat / beatsPerMeasure);
+      const beatInM = tc.beat - mIdx * beatsPerMeasure;
+      const rowIdx = Math.floor(mIdx / measuresPerRow);
+      const colIdx = mIdx % measuresPerRow;
+      const x = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInM * PIXELS_PER_BEAT;
+      const y = rowIdx * rowHeight + STAVE_Y_FIRST - 10;
+      context.setFont('Arial', 9, 'bold');
+      context.setFillStyle('#999999');
+      try { (context as any).fillText(`♩=${Math.round(tc.bpm)}`, x, y); } catch (_) {}
+    });
+  }
   context.setFont('Arial', 10);
   context.setFillStyle(fg);
   context.setStrokeStyle(fg);
@@ -649,6 +671,11 @@ export function renderNotationToCanvas(
         }
       }
 
+      const hasRepStartC = song.repeats?.some(r => r.type === 'start' && r.measure - 1 === mIndex);
+      const hasRepEndC   = song.repeats?.some(r => r.type === 'end'   && r.measure - 1 === mIndex);
+      if (hasRepStartC) { try { stave.setBegBarType((VF.Barline as any).type.REPEAT_BEGIN); } catch (_) {} }
+      if (hasRepEndC)   { try { stave.setEndBarType((VF.Barline as any).type.REPEAT_END); } catch (_) {} }
+
       stave.setContext(context).draw();
 
       // Grand staff: add bass clef stave
@@ -661,6 +688,8 @@ export function renderNotationToCanvas(
           const ks = song.keySignature;
           if (ks && ks !== 'C') bassStave.addKeySignature(ks);
         }
+        if (hasRepStartC) { try { bassStave.setBegBarType((VF.Barline as any).type.REPEAT_BEGIN); } catch (_) {} }
+        if (hasRepEndC)   { try { bassStave.setEndBarType((VF.Barline as any).type.REPEAT_END); } catch (_) {} }
         bassStave.setContext(context).draw();
         if (colIdx === 0) {
           try { const b = new VF.StaveConnector(stave, bassStave); b.setType((VF.StaveConnector as any).type.BRACE); b.setContext(context).draw(); } catch (_) {}
@@ -755,6 +784,27 @@ export function renderNotationToCanvas(
       ctx2d.restore();
     });
   });
+
+  // Tempo change labels
+  if (song.tempoChanges?.length) {
+    song.tempoChanges.forEach(tc => {
+      const mIdx = Math.floor(tc.beat / beatsPerMeasure);
+      const rowIdx = Math.floor(mIdx / measuresPerRow);
+      if (rowIdx < startRow || rowIdx >= endRow) return;
+      const adjustedRowIdx = rowIdx - startRow;
+      const colIdx = mIdx % measuresPerRow;
+      const beatInM = tc.beat - mIdx * beatsPerMeasure;
+      const x = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInM * PIXELS_PER_BEAT;
+      const y = adjustedRowIdx * rowHeight + STAVE_Y_FIRST - 10;
+      ctx2d.save();
+      ctx2d.font = `bold ${9 * scale}px Arial, sans-serif`;
+      ctx2d.fillStyle = '#777777';
+      ctx2d.textAlign = 'left';
+      ctx2d.textBaseline = 'alphabetic';
+      ctx2d.fillText(`♩=${Math.round(tc.bpm)}`, x * scale, y * scale);
+      ctx2d.restore();
+    });
+  }
 
   return layout;
 }

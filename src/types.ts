@@ -19,7 +19,20 @@ export interface TrackData {
   name: string;
   instrument: InstrumentPreset;
   notes: NoteData[];
-  grandStaff?: boolean; // render as treble + bass clef grand staff
+  grandStaff?: boolean;
+  volume?: number;  // 0–1, default 1
+  muted?: boolean;
+  solo?: boolean;
+}
+
+export interface TempoChange {
+  beat: number; // same units as NoteData.start (quarter-note beats from start)
+  bpm: number;
+}
+
+export interface RepeatMarker {
+  measure: number; // 1-based
+  type: 'start' | 'end';
 }
 
 export interface SongData {
@@ -29,6 +42,8 @@ export interface SongData {
   timeSignature: number[]; // e.g., [4, 4]
   tracks: TrackData[];
   keySignature?: string; // e.g., 'C', 'G', 'F', 'Bb'
+  tempoChanges?: TempoChange[];
+  repeats?: RepeatMarker[];
 }
 
 export type InputMode = 'compose' | 'chord_builder';

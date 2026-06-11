@@ -1,9 +1,62 @@
 import * as Tone from 'tone';
-import { SongData, InstrumentPreset, EffectsSettings } from '../types';
+import { SongData, NoteData, InstrumentPreset, EffectsSettings, TempoChange, RepeatMarker } from '../types';
 
 const DYNAMIC_VELOCITY: Record<string, number> = {
   pp: 0.15, p: 0.3, mp: 0.5, mf: 0.65, f: 0.8, ff: 1.0,
 };
+
+// ── Tempo / repeat helpers ────────────────────────────────────────────────────
+
+function bpmAtBeat(beat: number, base: number, changes: TempoChange[]): number {
+  const hits = changes.filter(c => c.beat <= beat).sort((a, b) => a.beat - b.beat);
+  return hits.length ? hits[hits.length - 1].bpm : base;
+}
+
+function beatToSeconds(beat: number, base: number, changes: TempoChange[]): number {
+  const sorted = [...changes].filter(c => c.beat <= beat).sort((a, b) => a.beat - b.beat);
+  let sec = 0, prev = 0, bpm = base;
+  for (const c of sorted) {
+    sec += (c.beat - prev) * (60 / bpm);
+    prev = c.beat;
+    bpm = c.bpm;
+  }
+  return sec + (beat - prev) * (60 / bpm);
+}
+
+function expandNotesForRepeats(
+  notes: NoteData[],
+  repeats: RepeatMarker[],
+  beatsPerMeasure: number
+): NoteData[] {
+  if (!repeats?.length) return notes;
+  const endMs = repeats.filter(r => r.type === 'end').map(r => r.measure - 1).sort((a, b) => a - b);
+  const startMs = repeats.filter(r => r.type === 'start').map(r => r.measure - 1);
+  if (!endMs.length) return notes;
+  const pairs = endMs.map(endM => ({
+    start: [...startMs].filter(s => s <= endM).sort((a, b) => b - a)[0] ?? 0,
+    end: endM,
+  }));
+  const maxBeat = notes.reduce((m, n) => Math.max(m, n.start + n.duration), 0);
+  const totalM = Math.max(Math.ceil(maxBeat / beatsPerMeasure), (endMs[endMs.length - 1] ?? 0) + 1);
+  const result: NoteData[] = [];
+  let offset = 0;
+  for (let m = 0; m < totalM; m++) {
+    const mS = m * beatsPerMeasure, mE = (m + 1) * beatsPerMeasure;
+    notes
+      .filter(n => n.start >= mS - 0.001 && n.start < mE - 0.001)
+      .forEach(n => result.push({ ...n, start: n.start + offset }));
+    const pair = pairs.find(p => p.end === m);
+    if (pair) {
+      const rs = pair.start * beatsPerMeasure;
+      const repLen = mE - rs;
+      notes
+        .filter(n => n.start >= rs - 0.001 && n.start < mE - 0.001)
+        .forEach(n => result.push({ ...n, start: n.start - rs + mE + offset }));
+      offset += repLen;
+    }
+  }
+  return result.sort((a, b) => a.start - b.start);
+}
 
 // ── Instrument factory ────────────────────────────────────────────────────────
 // Returns { synth, chain } where synth is the playable node and chain is the
@@ -407,32 +460,51 @@ class AudioEngine {
     this.trackChainNodes.forEach(nodes => nodes.forEach(n => { try { n.dispose(); } catch (_) {} }));
     this.trackChainNodes.clear();
 
+    const anySoloed = song.tracks.some(t => t.solo);
+    const tempoChanges = song.tempoChanges ?? [];
+    const repeats = song.repeats ?? [];
+
     song.tracks.forEach(track => {
       const preset = track.instrument;
       if (preset !== 'piano') {
         const { synth, chain } = makeInstrument(preset);
         chain.connect(this.masterBus!);
         this.trackSynths.set(track.id, synth);
-        // track intermediate nodes only when chain !== synth
         this.trackChainNodes.set(track.id, chain !== synth ? [chain] : []);
       }
     });
 
+    // Schedule tempo changes so the transport BPM stays in sync (affects metronome)
+    if (tempoChanges.length) {
+      [...tempoChanges].sort((a, b) => a.beat - b.beat).forEach(tc => {
+        const time = beatToSeconds(tc.beat, song.tempo, tempoChanges);
+        Tone.Transport.schedule((t) => {
+          Tone.Transport.bpm.setValueAtTime(tc.bpm, t);
+        }, time);
+      });
+    }
+
     this.setMetronome(this.isMetronomeEnabled, song.timeSignature);
 
     song.tracks.forEach(track => {
+      // Respect mute / solo
+      const audible = !track.muted && (!anySoloed || !!track.solo);
+      if (!audible) return;
+
+      const trackVol = track.volume ?? 1;
       const instrument: any = (track.instrument !== 'piano' && this.trackSynths.has(track.id))
         ? this.trackSynths.get(track.id)!
         : (this.sampler && this.sampler.loaded) ? this.sampler : this.fallbackSynth!;
 
-      track.notes.forEach(note => {
+      const notes = expandNotesForRepeats(track.notes, repeats, song.timeSignature[0]);
+
+      notes.forEach(note => {
         if (note.isRest) return;
-        const bars = Math.floor(note.start / song.timeSignature[0]);
-        const beats = Math.floor(note.start % song.timeSignature[0]);
-        const sixteenths = Math.round((note.start % 1) * 4);
-        const startTime = `${bars}:${beats}:${sixteenths}`;
-        const durationSecs = note.duration * (60 / song.tempo);
-        const velocity = DYNAMIC_VELOCITY[note.dynamic ?? 'mf'] ?? 0.65;
+        const startSec = beatToSeconds(note.start, song.tempo, tempoChanges);
+        const bpm = bpmAtBeat(note.start, song.tempo, tempoChanges);
+        const durationSecs = note.duration * (60 / bpm);
+        const baseVel = DYNAMIC_VELOCITY[note.dynamic ?? 'mf'] ?? 0.65;
+        const velocity = Math.min(1, baseVel * trackVol);
         const playDuration = note.articulation === 'staccato' ? durationSecs * 0.45 : durationSecs;
 
         Tone.Transport.schedule((time) => {
@@ -441,14 +513,14 @@ class AudioEngine {
           } catch (_) {}
           Tone.Draw.schedule(() => { this.onNotePlay?.(note.pitch); }, time);
           Tone.Draw.schedule(() => { this.onNoteStop?.(note.pitch); }, time + durationSecs);
-        }, startTime);
+        }, startSec);
       });
     });
 
     if (loopEnabled && loopStart !== undefined && loopEnd !== undefined) {
       Tone.Transport.loop = true;
-      Tone.Transport.loopStart = loopStart * (60 / song.tempo);
-      Tone.Transport.loopEnd = loopEnd * (60 / song.tempo);
+      Tone.Transport.loopStart = beatToSeconds(loopStart, song.tempo, tempoChanges);
+      Tone.Transport.loopEnd = beatToSeconds(loopEnd, song.tempo, tempoChanges);
     } else {
       Tone.Transport.loop = false;
     }
