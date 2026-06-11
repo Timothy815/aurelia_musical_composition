@@ -531,6 +531,12 @@ export default function App() {
         return;
       }
 
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSelectedNoteIds(new Set());
+        return;
+      }
+
       if (e.key === 'Enter') {
         e.preventDefault();
         handleAppendToScore();
@@ -538,7 +544,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleAppendToScore, selectedNoteIds, song, clipboard, setSong]);
+  }, [handleAppendToScore, selectedNoteIds, song, clipboard, setSong, setSelectedNoteIds]);
 
   const detectedChords = useMemo(() => {
     if (combinedNotes.size === 0) return [];
