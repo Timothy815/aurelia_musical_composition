@@ -263,9 +263,11 @@ export function Notation({
       if (selectedNoteIds.size === 0) return;
       onUpdateSong(prev => {
         const selectedNotes = prev.tracks.flatMap(t => t.notes).filter(n => selectedNoteIds.has(n.id));
+        // Strip accidentals to find the grid row — notes like "Eb4" live on the "E4" row
+        const rowOf = (pitch: string) => PITCHES.indexOf(pitch.replace(/[#b]/, ''));
         // All notes must be able to move — if any hit the boundary, hold the whole chord
         const canAllMove = selectedNotes.every(n => {
-          const idx = PITCHES.indexOf(n.pitch);
+          const idx = rowOf(n.pitch);
           if (idx === -1) return false;
           const next = e.key === 'ArrowUp' ? idx - 1 : idx + 1;
           return next >= 0 && next < PITCHES.length;
@@ -275,7 +277,7 @@ export function Notation({
           ...t,
           notes: t.notes.map(n => {
             if (!selectedNoteIds.has(n.id)) return n;
-            const idx = PITCHES.indexOf(n.pitch);
+            const idx = rowOf(n.pitch);
             if (idx === -1) return n;
             const next = e.key === 'ArrowUp' ? idx - 1 : idx + 1;
             if (onPlayNote && !n.isRest) onPlayNote(PITCHES[next]);
