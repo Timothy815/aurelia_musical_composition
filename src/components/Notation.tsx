@@ -381,7 +381,7 @@ export function Notation({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  const { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgHeight, svgWidth, effectiveTrackHeight } = layout;
+  const { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgHeight, svgWidth, effectiveTrackHeight, rowHeight, trackYOffsets } = layout;
 
   const uniqueChordsForTab = useMemo<ChordForTab[]>(() => {
     if (!showGuitarTab) return [];
@@ -428,8 +428,8 @@ export function Notation({
 
             const x1 = beatToX(overlapStart);
             const x2 = beatToX(overlapEnd);
-            const top = P8 + rowIdx * song.tracks.length * effectiveTrackHeight + STAVE_Y_FIRST - GRID_TOP_OFFSET;
-            const height = song.tracks.length * effectiveTrackHeight;
+            const top = P8 + rowIdx * rowHeight + STAVE_Y_FIRST - GRID_TOP_OFFSET;
+            const height = rowHeight;
 
             return (
               <div
@@ -457,7 +457,7 @@ export function Notation({
           if (rowIdx >= numRows) return null;
           const beatInMeasure = beatPos - mIndex * beatsPerMeasure;
           const x = P8 + getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT;
-          const y = P8 + rowIdx * song.tracks.length * effectiveTrackHeight + STAVE_Y_FIRST - 14;
+          const y = P8 + rowIdx * rowHeight + STAVE_Y_FIRST - 14;
           return (
             <div
               key={`chord-${beatPos}`}
@@ -481,7 +481,7 @@ export function Notation({
                 const mStart = mIndex * beatsPerMeasure;
 
                 const sectionLeft = P8 + getMeasureNoteStartX(colIdx, notesWidthPerMeasure);
-                const sectionTop = P8 + rowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST - GRID_TOP_OFFSET;
+                const sectionTop = P8 + rowIdx * rowHeight + trackYOffsets[tIndex] + STAVE_Y_FIRST - GRID_TOP_OFFSET;
 
                 return (
                   <div

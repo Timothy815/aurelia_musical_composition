@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useReducer, useRef } from 'react';
 import { Chord } from '@tonaljs/tonal';
 import { Play, Square, Plus, RotateCcw, RotateCw, Copy, Repeat } from 'lucide-react';
-import { SongData, TrackData, NoteData, InstrumentPreset, DynamicMarking, ArticulationMarking } from './types';
+import { SongData, TrackData, NoteData, InstrumentPreset, DynamicMarking, ArticulationMarking, EffectsSettings, DEFAULT_EFFECTS } from './types';
 import { generateId, cn } from './lib/utils';
 import { audio } from './lib/audio';
 import { Keyboard } from './components/Keyboard';
@@ -135,6 +135,9 @@ export default function App() {
   const [pianoReady, setPianoReady] = useState(false);
   const [selectedDynamic, setSelectedDynamic] = useState<DynamicMarking | null>(null);
   const [selectedArticulation, setSelectedArticulation] = useState<ArticulationMarking | null>(null);
+  const [effectsSettings, setEffectsSettings] = useState<EffectsSettings>(DEFAULT_EFFECTS);
+  const [showEffects, setShowEffects] = useState(false);
+  const recordingClickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // MIDI recording state
   const [midiEnabled, setMidiEnabled] = useState(false);
@@ -178,6 +181,7 @@ export default function App() {
 
   // Keep MIDI refs in sync with latest render state
   useEffect(() => { songTempoRef.current = song.tempo; }, [song.tempo]);
+  useEffect(() => { audio.setEffects(effectsSettings); }, [effectsSettings]);
   useEffect(() => { quantGridRef.current = quantGrid; }, [quantGrid]);
 
   // Stable MIDI message handler — reads mutable state from refs
@@ -422,6 +426,13 @@ export default function App() {
         recordingStartTimeRef.current = performance.now();
         isRecordingRef.current = true;
         setIsRecording(true);
+        // Keep click going during recording
+        let clickBeat = 0;
+        const timeSigBeats = song.timeSignature[0];
+        recordingClickRef.current = setInterval(() => {
+          audio.playCountInBeat(clickBeat % timeSigBeats === 0);
+          clickBeat++;
+        }, beatMs);
       }
     };
     setTimeout(tick, beatMs);
@@ -453,6 +464,11 @@ export default function App() {
     }
     pendingMidiNotes.current.clear();
 
+    // Stop click interval started during recording
+    if (recordingClickRef.current !== null) {
+      clearInterval(recordingClickRef.current);
+      recordingClickRef.current = null;
+    }
     // Stop transport; restore metronome to its pre-recording state
     audio.stop();
     audio.setMetronome(metronomeStatus, song.timeSignature);
@@ -1107,9 +1123,96 @@ export default function App() {
                       <option key={k} value={k}>{v}</option>
                     ))}
                   </select>
+                  <button
+                    onClick={e => { e.stopPropagation(); const nt = [...song.tracks]; nt[i] = { ...track, grandStaff: !track.grandStaff }; setSong({ ...song, tracks: nt }); }}
+                    className={cn("mt-1 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border transition-colors cursor-pointer",
+                      track.grandStaff ? "border-[#D4AF37] text-[#D4AF37] bg-[#D4AF37]/10" : "border-[#222] text-[#555] hover:border-[#555] hover:text-[#8E8E93]"
+                    )}
+                    title="Toggle Grand Staff (treble + bass clef)"
+                  >Grand Staff</button>
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Effects Chain */}
+          <div className="border-t border-[#1F1F21] shrink-0">
+            <div className="px-4 pt-3 pb-2">
+              <button
+                className="flex justify-between items-center w-full"
+                onClick={() => setShowEffects(v => !v)}
+              >
+                <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666]">Effects Chain</h2>
+                <span className="text-[#555] text-[10px]">{showEffects ? '▲' : '▼'}</span>
+              </button>
+            </div>
+            {showEffects && (() => {
+              const updateFx = <K extends keyof EffectsSettings>(key: K, patch: Partial<EffectsSettings[K]>) =>
+                setEffectsSettings(s => ({ ...s, [key]: { ...s[key], ...patch } }));
+              const FxSlider = ({ label, min, max, step = 0.01, value, onChange }: { label: string; min: number; max: number; step?: number; value: number; onChange: (v: number) => void }) => (
+                <div className="flex items-center gap-1 ml-10">
+                  <span className="text-[8px] text-[#444] w-16 shrink-0">{label}</span>
+                  <input type="range" min={min} max={max} step={step} value={value}
+                    onChange={e => onChange(Number(e.target.value))}
+                    className="flex-1 h-0.5 accent-[#8E8E93]" />
+                  <span className="text-[8px] text-[#444] w-8 text-right">{value < 1 ? Math.round(value * 100) + '%' : Number(value.toFixed(2))}</span>
+                </div>
+              );
+              const FxRow = ({ fxKey, label, children }: { fxKey: keyof EffectsSettings; label: string; children?: React.ReactNode }) => {
+                const fx = effectsSettings[fxKey];
+                return (
+                  <div className="space-y-1 py-1 border-b border-[#151517] last:border-0">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => updateFx(fxKey, { enabled: !fx.enabled } as any)}
+                        className={cn("w-7 h-3.5 rounded-full transition-colors relative shrink-0", fx.enabled ? "bg-[#D4AF37]" : "bg-[#2A2A2D]")}
+                      >
+                        <span className={cn("absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-transform shadow-sm", fx.enabled ? "translate-x-3.5" : "translate-x-0.5")} />
+                      </button>
+                      <span className={cn("text-[9px] uppercase tracking-wider w-14 shrink-0 font-medium", fx.enabled ? "text-[#D1D1D1]" : "text-[#444]")}>{label}</span>
+                      <input type="range" min={0} max={100} value={Math.round(fx.wet * 100)}
+                        onChange={e => updateFx(fxKey, { wet: Number(e.target.value) / 100 } as any)}
+                        disabled={!fx.enabled}
+                        className="flex-1 h-0.5 accent-[#D4AF37] disabled:opacity-30" />
+                      <span className="text-[8px] text-[#444] w-7 text-right">{Math.round(fx.wet * 100)}%</span>
+                    </div>
+                    {fx.enabled && children}
+                  </div>
+                );
+              };
+              return (
+                <div className="px-4 pb-3 max-h-72 overflow-y-auto custom-scrollbar">
+                  <FxRow fxKey="reverb" label="Reverb">
+                    <FxSlider label="Room" min={0} max={1} value={effectsSettings.reverb.roomSize} onChange={v => updateFx('reverb', { roomSize: v })} />
+                  </FxRow>
+                  <FxRow fxKey="delay" label="Delay">
+                    <FxSlider label="Time" min={0.05} max={1} value={effectsSettings.delay.time} onChange={v => updateFx('delay', { time: v })} />
+                    <FxSlider label="Feedback" min={0} max={0.95} value={effectsSettings.delay.feedback} onChange={v => updateFx('delay', { feedback: v })} />
+                  </FxRow>
+                  <FxRow fxKey="chorus" label="Chorus">
+                    <FxSlider label="Depth" min={0} max={1} value={effectsSettings.chorus.depth} onChange={v => updateFx('chorus', { depth: v })} />
+                    <FxSlider label="Rate" min={0.1} max={8} value={effectsSettings.chorus.frequency} onChange={v => updateFx('chorus', { frequency: v })} />
+                  </FxRow>
+                  <FxRow fxKey="flanger" label="Flanger">
+                    <FxSlider label="Depth" min={0} max={1} value={effectsSettings.flanger.depth} onChange={v => updateFx('flanger', { depth: v })} />
+                    <FxSlider label="Rate" min={0.05} max={4} value={effectsSettings.flanger.frequency} onChange={v => updateFx('flanger', { frequency: v })} />
+                  </FxRow>
+                  <FxRow fxKey="phaser" label="Phaser">
+                    <FxSlider label="Rate" min={0.05} max={4} value={effectsSettings.phaser.frequency} onChange={v => updateFx('phaser', { frequency: v })} />
+                  </FxRow>
+                  <FxRow fxKey="tremolo" label="Tremolo">
+                    <FxSlider label="Rate" min={0.5} max={20} value={effectsSettings.tremolo.frequency} onChange={v => updateFx('tremolo', { frequency: v })} />
+                    <FxSlider label="Depth" min={0} max={1} value={effectsSettings.tremolo.depth} onChange={v => updateFx('tremolo', { depth: v })} />
+                  </FxRow>
+                  <FxRow fxKey="overdrive" label="Overdrive">
+                    <FxSlider label="Drive" min={0} max={1} value={effectsSettings.overdrive.amount} onChange={v => updateFx('overdrive', { amount: v })} />
+                  </FxRow>
+                  <FxRow fxKey="fuzz" label="Fuzz">
+                    <FxSlider label="Order" min={1} max={100} step={1} value={effectsSettings.fuzz.order} onChange={v => updateFx('fuzz', { order: Math.round(v) })} />
+                  </FxRow>
+                </div>
+              );
+            })()}
           </div>
         </div>
 

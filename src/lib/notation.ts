@@ -124,6 +124,8 @@ export interface NotationLayout {
   svgWidth: number;
   svgHeight: number;
   effectiveTrackHeight: number;
+  rowHeight: number;       // total px per row (grand staff tracks count double)
+  trackYOffsets: number[]; // cumulative Y offset of each track within a row
 }
 
 export function calcLayout(song: SongData, availableWidth: number, showGuitarTab = false, trackHeightOverride?: number): NotationLayout {
@@ -146,9 +148,17 @@ export function calcLayout(song: SongData, availableWidth: number, showGuitarTab
 
   const svgWidth = 10 + firstMeasureWidth + Math.max(0, measuresPerRow - 1) * laterMeasureWidth + 10;
   const effectiveTrackHeight = trackHeightOverride ?? TRACK_HEIGHT;
-  const svgHeight = numRows * song.tracks.length * effectiveTrackHeight + STAVE_Y_FIRST + 20;
 
-  return { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgWidth, svgHeight, effectiveTrackHeight };
+  const trackYOffsets: number[] = [];
+  let cumTrackY = 0;
+  song.tracks.forEach(t => {
+    trackYOffsets.push(cumTrackY);
+    cumTrackY += t.grandStaff ? 2 * effectiveTrackHeight : effectiveTrackHeight;
+  });
+  const rowHeight = cumTrackY || effectiveTrackHeight;
+  const svgHeight = numRows * rowHeight + STAVE_Y_FIRST + 20;
+
+  return { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgWidth, svgHeight, effectiveTrackHeight, rowHeight, trackYOffsets };
 }
 
 // staveX in SVG coords for a given column index within a row
@@ -174,19 +184,19 @@ function durToVF(beats: number): string {
   return '16';
 }
 
-function buildStaveNote(VF: any, chordNotes: NoteData[], fg: string): any {
+function buildStaveNote(VF: any, chordNotes: NoteData[], fg: string, clef = 'treble'): any {
   const isRest = chordNotes.length === 1 && !!chordNotes[0].isRest;
   const dur = chordNotes[0].duration;
 
   const keys = chordNotes.map(n => {
-    if (n.isRest) return 'b/4';
+    if (n.isRest) return clef === 'bass' ? 'd/3' : 'b/4';
     return `${n.pitch.slice(0, -1).toLowerCase()}/${n.pitch.slice(-1)}`;
   });
 
   let vfDur = durToVF(dur);
   if (isRest) vfDur += 'r';
 
-  const sn = new VF.StaveNote({ keys, duration: vfDur });
+  const sn = new VF.StaveNote({ keys, duration: vfDur, clef });
 
   if (!isRest) {
     keys.forEach((key: string, i: number) => {
@@ -219,7 +229,8 @@ function renderTrackMeasure(
   mIndex: number,
   layout: NotationLayout,
   stave: any,
-  fg: string
+  fg: string,
+  clef = 'treble'
 ) {
   const { beatsPerMeasure, notesWidthPerMeasure, measuresPerRow } = layout;
   const colIdx = mIndex % measuresPerRow;
@@ -250,7 +261,7 @@ function renderTrackMeasure(
 
     const renderGroup = (notes: NoteData[], stemDir: number | null) => {
       if (notes.length === 0) return null;
-      const sn = buildStaveNote(VF, notes, fg);
+      const sn = buildStaveNote(VF, notes, fg, clef);
       if (stemDir !== null) {
         try { sn.setStemDirection(stemDir); } catch (_) {}
       }
@@ -295,7 +306,7 @@ export function renderNotation(
 
   const width = availableWidth ?? Math.max(300, (container.parentElement?.clientWidth ?? 900) - 64);
   const layout = calcLayout(song, width, showGuitarTab);
-  const { measuresPerRow, totalMeasures, notesWidthPerMeasure, effectiveTrackHeight, beatsPerMeasure } = layout;
+  const { measuresPerRow, totalMeasures, notesWidthPerMeasure, effectiveTrackHeight, beatsPerMeasure, rowHeight, trackYOffsets } = layout;
 
   const renderer = new VF.Renderer(container as HTMLDivElement, RendererBackends.SVG);
   renderer.resize(layout.svgWidth, layout.svgHeight);
@@ -319,7 +330,7 @@ export function renderNotation(
       const staveWidth = colIdx === 0
         ? FIRST_MEASURE_EXTRA + notesWidthPerMeasure
         : BARLINE_PADDING + notesWidthPerMeasure;
-      const staveY = rowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST;
+      const staveY = rowIdx * rowHeight + trackYOffsets[tIndex] + STAVE_Y_FIRST;
 
       const stave = new VF.Stave(staveX, staveY, staveWidth);
 
@@ -334,7 +345,30 @@ export function renderNotation(
 
       stave.setContext(context).draw();
 
-      renderTrackMeasure(VF, context, track, song, mIndex, layout, stave, fg);
+      // Grand staff: add bass clef stave and brace connector
+      let bassStave: any = null;
+      if (track.grandStaff) {
+        bassStave = new VF.Stave(staveX, staveY + effectiveTrackHeight, staveWidth);
+        if (colIdx === 0) {
+          bassStave.addClef('bass');
+          const ks = song.keySignature;
+          if (ks && ks !== 'C') bassStave.addKeySignature(ks);
+        }
+        bassStave.setContext(context).draw();
+        if (colIdx === 0) {
+          try { const b = new VF.StaveConnector(stave, bassStave); b.setType((VF.StaveConnector as any).type.BRACE); b.setContext(context).draw(); } catch (_) {}
+        }
+        try { const l = new VF.StaveConnector(stave, bassStave); l.setType((VF.StaveConnector as any).type.SINGLE_LEFT); l.setContext(context).draw(); } catch (_) {}
+      }
+
+      const trebleTrack = track.grandStaff
+        ? { notes: track.notes.filter(n => n.isRest || noteToMidi(n.pitch) >= 60) }
+        : track;
+      renderTrackMeasure(VF, context, trebleTrack, song, mIndex, layout, stave, fg, 'treble');
+      if (track.grandStaff && bassStave) {
+        const bassTrack = { notes: track.notes.filter(n => !n.isRest && noteToMidi(n.pitch) < 60) };
+        renderTrackMeasure(VF, context, bassTrack, song, mIndex, layout, bassStave, fg, 'bass');
+      }
 
       if (tIndex === 0) {
         context.setFont('Arial', 8);
@@ -366,7 +400,7 @@ export function renderNotation(
       const colIdx = mIdx % measuresPerRow;
       const beatInM = beatPos - mIdx * beatsPerMeasure;
       const noteX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInM * PIXELS_PER_BEAT;
-      const staveY = rowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST;
+      const staveY = rowIdx * rowHeight + trackYOffsets[tIndex] + STAVE_Y_FIRST;
       context.setFont('Times New Roman', 11, 'italic');
       context.setFillStyle(fg);
       try { (context as any).fillText(dyn, noteX, staveY + 58); } catch (_) {}
@@ -572,13 +606,13 @@ export function renderNotationToCanvas(
 ) {
   const VF = VexFlow;
   const layout = calcLayout(song, pageWidth, showGuitarTab, trackHeightOverride);
-  const { measuresPerRow, totalMeasures, numRows, notesWidthPerMeasure, beatsPerMeasure, effectiveTrackHeight } = layout;
+  const { measuresPerRow, totalMeasures, numRows, notesWidthPerMeasure, beatsPerMeasure, effectiveTrackHeight, rowHeight, trackYOffsets } = layout;
 
   const endRow = rowsPerPage !== undefined ? Math.min(startRow + rowsPerPage, numRows) : numRows;
   const rowsOnPage = endRow - startRow;
 
   canvas.width = layout.svgWidth * scale;
-  canvas.height = (STAVE_Y_FIRST + rowsOnPage * song.tracks.length * effectiveTrackHeight + 20) * scale;
+  canvas.height = (STAVE_Y_FIRST + rowsOnPage * rowHeight + 20) * scale;
 
   const ctx2d = canvas.getContext('2d')!;
   ctx2d.fillStyle = '#ffffff';
@@ -602,7 +636,7 @@ export function renderNotationToCanvas(
       const staveWidth = (colIdx === 0
         ? FIRST_MEASURE_EXTRA + notesWidthPerMeasure
         : BARLINE_PADDING + notesWidthPerMeasure) * scale;
-      const staveY = (adjustedRowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST) * scale;
+      const staveY = (adjustedRowIdx * rowHeight + trackYOffsets[tIndex] + STAVE_Y_FIRST) * scale;
 
       const stave = new VF.Stave(staveX, staveY, staveWidth);
 
@@ -617,6 +651,23 @@ export function renderNotationToCanvas(
 
       stave.setContext(context).draw();
 
+      // Grand staff: add bass clef stave
+      let bassStave: any = null;
+      if (track.grandStaff) {
+        const bassStaveY = staveY + effectiveTrackHeight * scale;
+        bassStave = new VF.Stave(staveX, bassStaveY, staveWidth);
+        if (colIdx === 0) {
+          bassStave.addClef('bass');
+          const ks = song.keySignature;
+          if (ks && ks !== 'C') bassStave.addKeySignature(ks);
+        }
+        bassStave.setContext(context).draw();
+        if (colIdx === 0) {
+          try { const b = new VF.StaveConnector(stave, bassStave); b.setType((VF.StaveConnector as any).type.BRACE); b.setContext(context).draw(); } catch (_) {}
+        }
+        try { const l = new VF.StaveConnector(stave, bassStave); l.setType((VF.StaveConnector as any).type.SINGLE_LEFT); l.setContext(context).draw(); } catch (_) {}
+      }
+
       if (tIndex === 0) {
         ctx2d.save();
         ctx2d.font = `${8 * scale}px Arial, sans-serif`;
@@ -627,40 +678,48 @@ export function renderNotationToCanvas(
         ctx2d.restore();
       }
 
-      // Inline note rendering at scale
       const mStart = mIndex * beatsPerMeasure;
       const mEnd = (mIndex + 1) * beatsPerMeasure;
-      const notesInMeasure = track.notes.filter(n =>
-        n.start >= mStart - 0.001 && n.start < mEnd - 0.001
-      );
-
-      const byBeat = new Map<number, NoteData[]>();
-      notesInMeasure.forEach(n => {
-        const k = Math.round(n.start * 100) / 100;
-        if (!byBeat.has(k)) byBeat.set(k, []);
-        byBeat.get(k)!.push(n);
-      });
-
       const noteStartX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) * scale;
-      const beamable: any[] = [];
 
-      [...byBeat.entries()].sort(([a], [b]) => a - b).forEach(([beat, chord]) => {
-        const beatInMeasure = beat - mStart;
-        const sn = buildStaveNote(VF, chord, '#000000');
-        const tc = new VF.TickContext();
-        tc.addTickable(sn);
-        const desiredX = noteStartX + beatInMeasure * PIXELS_PER_BEAT * scale;
-        tc.preFormat().setX(desiredX - stave.getNoteStartX() - VEXFLOW_NOTE_OFFSET);
-        sn.setStave(stave);
-        sn.setContext(context).draw();
-        if (!chord[0]?.isRest && chord[0]?.duration <= 0.5) beamable.push(sn);
-      });
+      // Helper: render a set of notes on a target stave in canvas mode
+      const renderMeasureOnCanvas = (notesList: NoteData[], targetStave: any, noteClef: string) => {
+        const notesInMeasure = notesList.filter(n =>
+          n.start >= mStart - 0.001 && n.start < mEnd - 0.001
+        );
+        const byBeat = new Map<number, NoteData[]>();
+        notesInMeasure.forEach(n => {
+          const k = Math.round(n.start * 100) / 100;
+          if (!byBeat.has(k)) byBeat.set(k, []);
+          byBeat.get(k)!.push(n);
+        });
+        const beamable: any[] = [];
+        [...byBeat.entries()].sort(([a], [b]) => a - b).forEach(([beat, chord]) => {
+          const beatInMeasure = beat - mStart;
+          const sn = buildStaveNote(VF, chord, '#000000', noteClef);
+          const tc = new VF.TickContext();
+          tc.addTickable(sn);
+          const desiredX = noteStartX + beatInMeasure * PIXELS_PER_BEAT * scale;
+          tc.preFormat().setX(desiredX - targetStave.getNoteStartX() - VEXFLOW_NOTE_OFFSET);
+          sn.setStave(targetStave);
+          sn.setContext(context).draw();
+          if (!chord[0]?.isRest && chord[0]?.duration <= 0.5) beamable.push(sn);
+        });
+        if (beamable.length >= 2) {
+          try {
+            const beams = VF.Beam.generateBeams(beamable);
+            beams.forEach((b: any) => b.setContext(context).draw());
+          } catch (_) {}
+        }
+      };
 
-      if (beamable.length >= 2) {
-        try {
-          const beams = VF.Beam.generateBeams(beamable);
-          beams.forEach((b: any) => b.setContext(context).draw());
-        } catch (_) {}
+      const trebleNotes = track.grandStaff
+        ? track.notes.filter(n => n.isRest || noteToMidi(n.pitch) >= 60)
+        : track.notes;
+      renderMeasureOnCanvas(trebleNotes, stave, 'treble');
+      if (track.grandStaff && bassStave) {
+        const bassNotes = track.notes.filter(n => !n.isRest && noteToMidi(n.pitch) < 60);
+        renderMeasureOnCanvas(bassNotes, bassStave, 'bass');
       }
     }
   });
@@ -686,7 +745,7 @@ export function renderNotationToCanvas(
       const colIdx = mIdx % measuresPerRow;
       const beatInM = beatPos - mIdx * beatsPerMeasure;
       const noteX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInM * PIXELS_PER_BEAT;
-      const staveY = adjustedRowIdx * song.tracks.length * effectiveTrackHeight + tIndex * effectiveTrackHeight + STAVE_Y_FIRST;
+      const staveY = adjustedRowIdx * rowHeight + trackYOffsets[tIndex] + STAVE_Y_FIRST;
       ctx2d.save();
       ctx2d.font = `italic ${10 * scale}px Times New Roman, serif`;
       ctx2d.fillStyle = '#000000';

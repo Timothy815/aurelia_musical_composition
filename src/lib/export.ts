@@ -247,8 +247,7 @@ export function exportToPdf(song: SongData, showGuitarTab = false) {
   const PAGE_CONTENT_HEIGHT = 600;
 
   const layout = calcLayout(song, PAGE_WIDTH, showGuitarTab, PDF_TRACK_HEIGHT);
-  const { numRows, effectiveTrackHeight } = layout;
-  const rowHeight = song.tracks.length * effectiveTrackHeight;
+  const { numRows, rowHeight } = layout;
   const rowsPerPage = Math.max(1, Math.floor(PAGE_CONTENT_HEIGHT / rowHeight));
 
   const pageDataUrls: string[] = [];

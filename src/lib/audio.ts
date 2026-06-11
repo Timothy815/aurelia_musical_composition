@@ -1,20 +1,107 @@
 import * as Tone from 'tone';
-import { SongData, InstrumentPreset } from '../types';
+import { SongData, InstrumentPreset, EffectsSettings } from '../types';
 
 const DYNAMIC_VELOCITY: Record<string, number> = {
   pp: 0.15, p: 0.3, mp: 0.5, mf: 0.65, f: 0.8, ff: 1.0,
 };
 
-const PRESETS: Record<InstrumentPreset, object> = {
-  piano:   { oscillator: { type: 'triangle' },  envelope: { attack: 0.01,  decay: 0.3,  sustain: 0.2, release: 1    } },
-  guitar:  { oscillator: { type: 'triangle' },  envelope: { attack: 0.005, decay: 0.25, sustain: 0.1, release: 0.6  } },
-  strings: { oscillator: { type: 'sawtooth' },  envelope: { attack: 0.4,   decay: 0.1,  sustain: 0.8, release: 1.5  } },
-  brass:   { oscillator: { type: 'square' },    envelope: { attack: 0.08,  decay: 0.1,  sustain: 0.7, release: 0.5  } },
-  bass:    { oscillator: { type: 'triangle' },  envelope: { attack: 0.05,  decay: 0.2,  sustain: 0.5, release: 0.8  } },
-  flute:   { oscillator: { type: 'sine' },      envelope: { attack: 0.12,  decay: 0.05, sustain: 0.9, release: 0.6  } },
-  organ:   { oscillator: { type: 'square' },    envelope: { attack: 0.01,  decay: 0,    sustain: 1,   release: 0.15 } },
-  synth:   { oscillator: { type: 'sawtooth' },  envelope: { attack: 0.02,  decay: 0.1,  sustain: 0.5, release: 0.8  } },
-};
+// ── Instrument factory ────────────────────────────────────────────────────────
+// Returns { synth, chain } where synth is the playable node and chain is the
+// last node in any instrument-specific effects chain (connect chain → masterBus).
+
+function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.ToneAudioNode } {
+  switch (preset) {
+    case 'guitar': {
+      // Karplus-Strong plucked string synthesis
+      const synth = new Tone.PolySynth(Tone.PluckSynth as any, {
+        attackNoise: 2,
+        dampening: 4000,
+        resonance: 0.96,
+      } as any);
+      return { synth, chain: synth };
+    }
+    case 'strings': {
+      // AMSynth with slow attack + chorus + short reverb for lush strings
+      const chorus = new Tone.Chorus({ frequency: 1.5, delayTime: 3.5, depth: 0.6 }).start();
+      const reverb = new Tone.Freeverb({ roomSize: 0.75, dampening: 4000 });
+      const synth = new Tone.PolySynth(Tone.AMSynth as any, {
+        harmonicity: 1.5,
+        oscillator: { type: 'sawtooth' },
+        envelope: { attack: 0.45, decay: 0.1, sustain: 0.9, release: 2.0 },
+        modulation: { type: 'sine' },
+        modulationEnvelope: { attack: 0.5, decay: 0, sustain: 1, release: 2 },
+      } as any);
+      synth.connect(chorus);
+      chorus.connect(reverb);
+      return { synth, chain: reverb };
+    }
+    case 'brass': {
+      // FMSynth for a bright metallic brass timbre
+      const dist = new Tone.Distortion({ distortion: 0.12, wet: 0.35 });
+      const synth = new Tone.PolySynth(Tone.FMSynth as any, {
+        harmonicity: 2,
+        modulationIndex: 4,
+        oscillator: { type: 'square' },
+        envelope: { attack: 0.08, decay: 0.2, sustain: 0.75, release: 0.5 },
+        modulation: { type: 'sawtooth' },
+        modulationEnvelope: { attack: 0.1, decay: 0.15, sustain: 0.5, release: 0.5 },
+      } as any);
+      synth.connect(dist);
+      return { synth, chain: dist };
+    }
+    case 'bass': {
+      // Heavy low-pass filtered synth for electric bass
+      const filter = new Tone.Filter({ frequency: 600, type: 'lowpass', rolloff: -24 });
+      const synth = new Tone.PolySynth(Tone.Synth as any, {
+        oscillator: { type: 'triangle8' },
+        envelope: { attack: 0.04, decay: 0.35, sustain: 0.7, release: 0.5 },
+      } as any);
+      synth.connect(filter);
+      return { synth, chain: filter };
+    }
+    case 'flute': {
+      // Sine with vibrato for a breathy flute sound
+      const vibrato = new Tone.Vibrato({ frequency: 5.5, depth: 0.15 });
+      const reverb = new Tone.Freeverb({ roomSize: 0.5, dampening: 6000 });
+      const synth = new Tone.PolySynth(Tone.Synth as any, {
+        oscillator: { type: 'sine' },
+        envelope: { attack: 0.2, decay: 0.05, sustain: 0.95, release: 0.8 },
+      } as any);
+      synth.connect(vibrato);
+      vibrato.connect(reverb);
+      return { synth, chain: reverb };
+    }
+    case 'organ': {
+      // FMSynth tuned for a Hammond drawbar-style organ sound
+      const chorus = new Tone.Chorus({ frequency: 3, delayTime: 3.5, depth: 0.4 }).start();
+      const synth = new Tone.PolySynth(Tone.FMSynth as any, {
+        harmonicity: 1,
+        modulationIndex: 1,
+        oscillator: { type: 'square' },
+        envelope: { attack: 0.01, decay: 0, sustain: 1, release: 0.1 },
+        modulation: { type: 'square' },
+        modulationEnvelope: { attack: 0.01, decay: 0, sustain: 1, release: 0.1 },
+      } as any);
+      synth.connect(chorus);
+      return { synth, chain: chorus };
+    }
+    case 'synth': {
+      // Classic polysynth — sawtooth with mild PWM for animation
+      const synth = new Tone.PolySynth(Tone.Synth as any, {
+        oscillator: { type: 'sawtooth' },
+        envelope: { attack: 0.02, decay: 0.15, sustain: 0.6, release: 1.0 },
+      } as any);
+      return { synth, chain: synth };
+    }
+    default:
+      // piano — caller handles via sampler, but need a fallback shape
+      const synth = new Tone.PolySynth(Tone.Synth as any, {
+        oscillator: { type: 'triangle' },
+        envelope: { attack: 0.01, decay: 0.3, sustain: 0.2, release: 1.0 },
+      } as any);
+      return { synth, chain: synth };
+  }
+}
 
 class AudioEngine {
   initialized = false;
@@ -24,16 +111,25 @@ class AudioEngine {
   metronomeSynth: Tone.Synth | null = null;
   metronomeLoop: Tone.Loop | null = null;
   isMetronomeEnabled = false;
-  trackSynths: Map<string, Tone.PolySynth> = new Map();
+  trackSynths: Map<string, any> = new Map();
+  trackChainNodes: Map<string, Tone.ToneAudioNode[]> = new Map();
   realtimeNotes = new Set<string>();
   private pendingReleases = new Set<string>();
-  // Tracks which synth played each realtime note so we release the right one
   private realtimeNoteSynth = new Map<string, 'sampler' | 'fallback'>();
-  // Short-release fallback synth used before sampler loads
   private realtimeFallback: Tone.PolySynth | null = null;
   private initPromise: Promise<void> | null = null;
-  // Dedicated state for MIDI keyboard notes (isolated from on-screen keyboard path)
   private midiActivePitches = new Set<string>();
+
+  // ── Master bus + effects chain ───────────────────────────────────────────
+  private masterBus: Tone.Gain | null = null;
+  private fxFuzz: Tone.Chebyshev | null = null;
+  private fxOverdrive: Tone.Distortion | null = null;
+  private fxPhaser: Tone.Phaser | null = null;
+  private fxChorus: Tone.Chorus | null = null;
+  private fxFlanger: Tone.Chorus | null = null;
+  private fxTremolo: Tone.Tremolo | null = null;
+  private fxDelay: Tone.FeedbackDelay | null = null;
+  private fxReverb: Tone.Freeverb | null = null;
 
   onNotePlay?: (pitch: string) => void;
   onNoteStop?: (pitch: string) => void;
@@ -45,20 +141,47 @@ class AudioEngine {
       this.initPromise = (async () => {
         await Tone.start();
 
+        // Master bus (all sources connect here)
+        this.masterBus = new Tone.Gain(1);
+
+        // Effects chain (wet=0 = bypassed; always in chain)
+        this.fxFuzz      = new Tone.Chebyshev(50);
+        this.fxOverdrive = new Tone.Distortion({ distortion: 0.4, wet: 0 });
+        this.fxPhaser    = new Tone.Phaser({ frequency: 0.5, octaves: 3, wet: 0 });
+        this.fxChorus    = new Tone.Chorus({ frequency: 1.5, delayTime: 3.5, depth: 0.7, wet: 0 }).start();
+        this.fxFlanger   = new Tone.Chorus({ frequency: 0.3, delayTime: 1,   depth: 0.5, wet: 0 }).start();
+        this.fxTremolo   = new Tone.Tremolo({ frequency: 4,   depth: 0.8,   wet: 0 }).start();
+        this.fxDelay     = new Tone.FeedbackDelay({ delayTime: 0.375, feedback: 0.4, wet: 0 });
+        this.fxReverb    = new Tone.Freeverb({ roomSize: 0.7, dampening: 3000, wet: 0 });
+
+        (this.fxFuzz as any).wet.value = 0;
+
+        // Chain: masterBus → fuzz → overdrive → phaser → chorus → flanger → tremolo → delay → reverb → dest
+        this.masterBus
+          .connect(this.fxFuzz!)
+          .connect(this.fxOverdrive!)
+          .connect(this.fxPhaser!)
+          .connect(this.fxChorus!)
+          .connect(this.fxFlanger!)
+          .connect(this.fxTremolo!)
+          .connect(this.fxDelay!)
+          .connect(this.fxReverb!)
+          .toDestination();
+
         this.realtimeFallback = new Tone.PolySynth(Tone.Synth, {
           oscillator: { type: 'triangle' as any },
           envelope: { attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.8 }
-        }).toDestination();
+        }).connect(this.masterBus);
 
         this.fallbackSynth = new Tone.PolySynth(Tone.Synth, {
           oscillator: { type: 'triangle' as any },
           envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 1 }
-        }).toDestination();
+        }).connect(this.masterBus);
 
         this.previewSynth = new Tone.PolySynth(Tone.Synth, {
           oscillator: { type: 'triangle' as any },
           envelope: { attack: 0.01, decay: 0.1, sustain: 0.3, release: 1 }
-        }).toDestination();
+        }).connect(this.masterBus);
 
         this.sampler = new Tone.Sampler({
           urls: {
@@ -74,12 +197,12 @@ class AudioEngine {
           release: 1.0,
           baseUrl: `${import.meta.env.BASE_URL}salamander/`,
           onload: () => { this.onSamplerLoad?.(); },
-        }).toDestination();
+        }).connect(this.masterBus);
 
         this.metronomeSynth = new Tone.Synth({
           oscillator: { type: "square" as any },
           envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.01 }
-        }).toDestination();
+        }).toDestination(); // metronome bypasses master FX chain
         this.metronomeSynth.volume.value = -10;
 
         this.initialized = true;
@@ -88,13 +211,44 @@ class AudioEngine {
     return this.initPromise;
   }
 
-  private getRealtimeInstrument(): Tone.Sampler | Tone.PolySynth {
-    return (this.sampler && this.sampler.loaded) ? this.sampler : (this.fallbackSynth!);
+  // ── Effects ───────────────────────────────────────────────────────────────
+
+  setEffects(s: EffectsSettings) {
+    if (!this.initialized) return;
+
+    (this.fxReverb as any).wet.value    = s.reverb.enabled    ? s.reverb.wet    : 0;
+    (this.fxReverb as any).roomSize.value = s.reverb.roomSize;
+
+    (this.fxDelay as any).wet.value     = s.delay.enabled     ? s.delay.wet     : 0;
+    (this.fxDelay as any).delayTime.value = s.delay.time;
+    (this.fxDelay as any).feedback.value  = s.delay.feedback;
+
+    (this.fxChorus as any).wet.value    = s.chorus.enabled    ? s.chorus.wet    : 0;
+    (this.fxChorus as any).depth        = s.chorus.depth;
+    (this.fxChorus as any).frequency.value = s.chorus.frequency;
+
+    (this.fxPhaser as any).wet.value    = s.phaser.enabled    ? s.phaser.wet    : 0;
+    (this.fxPhaser as any).frequency.value = s.phaser.frequency;
+
+    (this.fxTremolo as any).wet.value   = s.tremolo.enabled   ? s.tremolo.wet   : 0;
+    (this.fxTremolo as any).frequency.value = s.tremolo.frequency;
+    (this.fxTremolo as any).depth.value = s.tremolo.depth;
+
+    (this.fxOverdrive as any).wet.value = s.overdrive.enabled ? s.overdrive.wet : 0;
+    (this.fxOverdrive as any).distortion = s.overdrive.amount;
+
+    (this.fxFuzz as any).wet.value      = s.fuzz.enabled      ? s.fuzz.wet      : 0;
+    (this.fxFuzz as any).order          = s.fuzz.order;
+
+    (this.fxFlanger as any).wet.value   = s.flanger.enabled   ? s.flanger.wet   : 0;
+    (this.fxFlanger as any).depth       = s.flanger.depth;
+    (this.fxFlanger as any).frequency.value = s.flanger.frequency;
   }
 
-  private getSynthForPreset(preset: InstrumentPreset): Tone.PolySynth {
-    if (preset === 'piano') return this.fallbackSynth!;
-    return new Tone.PolySynth(Tone.Synth, PRESETS[preset] as any).toDestination();
+  // ── Realtime ──────────────────────────────────────────────────────────────
+
+  private getRealtimeInstrument(): Tone.Sampler | Tone.PolySynth {
+    return (this.sampler && this.sampler.loaded) ? this.sampler : (this.fallbackSynth!);
   }
 
   playNoteRealtime(pitch: string) {
@@ -103,14 +257,8 @@ class AudioEngine {
       this.pendingReleases.delete(pitch);
       return;
     }
-    // Release any already-playing instance of this pitch before re-attacking
-    if (this.realtimeNotes.has(pitch)) {
-      this._releaseRealtimeNote(pitch);
-    }
+    if (this.realtimeNotes.has(pitch)) this._releaseRealtimeNote(pitch);
     this.realtimeNotes.add(pitch);
-    // Always prefer the sampler — Tone.js silently skips notes whose buffers
-    // haven't finished loading yet, so we get silence (not rubber-band synth)
-    // during the brief loading window and natural piano sound as soon as ready.
     if (this.sampler) {
       this.sampler.triggerAttack(pitch);
       this.realtimeNoteSynth.set(pitch, 'sampler');
@@ -141,9 +289,7 @@ class AudioEngine {
     }
   }
 
-  // ── Dedicated MIDI keyboard methods ─────────────────────────────────────
-  // These are completely separate from playNoteRealtime so MIDI and on-screen
-  // keyboard state never interfere with each other.
+  // ── MIDI keyboard ─────────────────────────────────────────────────────────
 
   playMidiNote(pitch: string) {
     if (!this.initialized || !this.sampler) return;
@@ -151,7 +297,6 @@ class AudioEngine {
       try { this.sampler.triggerRelease(pitch, Tone.now()); } catch (_) {}
     }
     this.midiActivePitches.add(pitch);
-    // Small lookahead avoids scheduling-in-the-past artifacts from hardware events
     this.sampler.triggerAttack(pitch, Tone.now() + 0.015, 0.8);
   }
 
@@ -170,12 +315,17 @@ class AudioEngine {
     this.midiActivePitches.clear();
   }
 
+  // ── Preview ───────────────────────────────────────────────────────────────
+
   playNotePreview(pitch: string, preset?: InstrumentPreset) {
     if (!this.initialized) return;
     if (preset && preset !== 'piano') {
-      const synth = this.getSynthForPreset(preset);
-      synth.triggerAttackRelease(pitch, "8n");
-      setTimeout(() => synth.dispose(), 2000);
+      const { synth, chain } = makeInstrument(preset);
+      chain.connect(this.masterBus!);
+      try { synth.triggerAttackRelease(pitch, "8n"); } catch (_) {}
+      setTimeout(() => {
+        try { synth.dispose(); chain.dispose(); } catch (_) {}
+      }, 3000);
     } else if (this.sampler && this.sampler.loaded) {
       this.sampler.triggerAttackRelease(pitch, "8n");
     } else {
@@ -187,6 +337,8 @@ class AudioEngine {
     if (!this.initialized) return;
     this.getRealtimeInstrument().triggerAttackRelease(pitches, "2n");
   }
+
+  // ── Metronome ─────────────────────────────────────────────────────────────
 
   setMetronome(enabled: boolean, timeSignature: number[]) {
     this.isMetronomeEnabled = enabled;
@@ -225,19 +377,26 @@ class AudioEngine {
     Tone.Transport.start();
   }
 
+  // ── Playback ──────────────────────────────────────────────────────────────
+
   scheduleSong(song: SongData, loopEnabled?: boolean, loopStart?: number, loopEnd?: number) {
     Tone.Transport.cancel(0);
     Tone.Transport.bpm.value = song.tempo;
     Tone.Transport.timeSignature = song.timeSignature;
 
-    this.trackSynths.forEach(s => s.dispose());
+    this.trackSynths.forEach(s => { try { s.dispose(); } catch (_) {} });
     this.trackSynths.clear();
+    this.trackChainNodes.forEach(nodes => nodes.forEach(n => { try { n.dispose(); } catch (_) {} }));
+    this.trackChainNodes.clear();
 
     song.tracks.forEach(track => {
       const preset = track.instrument;
       if (preset !== 'piano') {
-        const synth = new Tone.PolySynth(Tone.Synth, PRESETS[preset] as any).toDestination();
+        const { synth, chain } = makeInstrument(preset);
+        chain.connect(this.masterBus!);
         this.trackSynths.set(track.id, synth);
+        // track intermediate nodes only when chain !== synth
+        this.trackChainNodes.set(track.id, chain !== synth ? [chain] : []);
       }
     });
 
@@ -259,7 +418,9 @@ class AudioEngine {
         const playDuration = note.articulation === 'staccato' ? durationSecs * 0.45 : durationSecs;
 
         Tone.Transport.schedule((time) => {
-          instrument.triggerAttackRelease(note.pitch, playDuration, time, velocity);
+          try {
+            instrument.triggerAttackRelease(note.pitch, playDuration, time, velocity);
+          } catch (_) {}
           Tone.Draw.schedule(() => { this.onNotePlay?.(note.pitch); }, time);
           Tone.Draw.schedule(() => { this.onNoteStop?.(note.pitch); }, time + durationSecs);
         }, startTime);
@@ -288,8 +449,10 @@ class AudioEngine {
     Tone.Transport.stop();
     Tone.Transport.cancel(0);
     Tone.Transport.loop = false;
-    this.trackSynths.forEach(s => s.dispose());
+    this.trackSynths.forEach(s => { try { s.dispose(); } catch (_) {} });
     this.trackSynths.clear();
+    this.trackChainNodes.forEach(nodes => nodes.forEach(n => { try { n.dispose(); } catch (_) {} }));
+    this.trackChainNodes.clear();
   }
 
   setTempo(tempo: number) {

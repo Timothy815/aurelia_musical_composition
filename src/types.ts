@@ -19,6 +19,7 @@ export interface TrackData {
   name: string;
   instrument: InstrumentPreset;
   notes: NoteData[];
+  grandStaff?: boolean; // render as treble + bass clef grand staff
 }
 
 export interface SongData {
@@ -31,3 +32,32 @@ export interface SongData {
 }
 
 export type InputMode = 'compose' | 'chord_builder';
+
+// ── Effects chain ──────────────────────────────────────────────────────────
+
+export interface EffectParam {
+  enabled: boolean;
+  wet: number; // 0–1
+}
+
+export interface EffectsSettings {
+  reverb:    EffectParam & { roomSize: number; };
+  delay:     EffectParam & { time: number; feedback: number; };
+  chorus:    EffectParam & { depth: number; frequency: number; };
+  phaser:    EffectParam & { frequency: number; };
+  tremolo:   EffectParam & { frequency: number; depth: number; };
+  overdrive: EffectParam & { amount: number; };
+  fuzz:      EffectParam & { order: number; };
+  flanger:   EffectParam & { depth: number; frequency: number; };
+}
+
+export const DEFAULT_EFFECTS: EffectsSettings = {
+  reverb:    { enabled: false, wet: 0.40, roomSize: 0.7 },
+  delay:     { enabled: false, wet: 0.30, time: 0.375, feedback: 0.40 },
+  chorus:    { enabled: false, wet: 0.50, depth: 0.7,  frequency: 1.5 },
+  phaser:    { enabled: false, wet: 0.50, frequency: 0.5 },
+  tremolo:   { enabled: false, wet: 0.80, frequency: 4,  depth: 0.8 },
+  overdrive: { enabled: false, wet: 0.60, amount: 0.4 },
+  fuzz:      { enabled: false, wet: 0.50, order: 50 },
+  flanger:   { enabled: false, wet: 0.50, depth: 0.5,  frequency: 0.3 },
+};
