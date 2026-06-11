@@ -329,15 +329,16 @@ export default function App() {
 
     const COUNT_IN = 2;
     const beatMs = (60 / song.tempo) * 1000;
-    audio.startCountIn(song.tempo, song.timeSignature);
 
     let remaining = COUNT_IN;
     setCountInDisplay(remaining);
+    audio.playCountInBeat(true);
 
     const tick = () => {
       remaining--;
-      setCountInDisplay(remaining);
       if (remaining > 0) {
+        setCountInDisplay(remaining);
+        audio.playCountInBeat(false);
         setTimeout(tick, beatMs);
       } else {
         setCountInDisplay(0);
@@ -347,7 +348,7 @@ export default function App() {
       }
     };
     setTimeout(tick, beatMs);
-  }, [midiEnabled, song.tempo, song.timeSignature]);
+  }, [midiEnabled, song.tempo]);
 
   const stopRecording = useCallback(() => {
     const now = performance.now();

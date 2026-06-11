@@ -45,7 +45,7 @@ class AudioEngine {
 
         this.realtimeFallback = new Tone.PolySynth(Tone.Synth, {
           oscillator: { type: 'triangle' as any },
-          envelope: { attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.05 }
+          envelope: { attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.8 }
         }).toDestination();
 
         this.fallbackSynth = new Tone.PolySynth(Tone.Synth, {
@@ -173,6 +173,13 @@ class AudioEngine {
       }, "4n");
       this.metronomeLoop.start(0);
     }
+  }
+
+  playCountInBeat(isDownbeat: boolean) {
+    if (!this.initialized || !this.metronomeSynth) return;
+    this.metronomeSynth.triggerAttackRelease(
+      isDownbeat ? "C6" : "G5", "32n", Tone.now(), isDownbeat ? 1 : 0.5
+    );
   }
 
   startCountIn(tempo: number, timeSignature: number[]) {
