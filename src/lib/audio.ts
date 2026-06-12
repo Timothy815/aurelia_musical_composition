@@ -580,7 +580,7 @@ class AudioEngine {
         ? this.trackSynths.get(track.id)!
         : (this.sampler && this.sampler.loaded) ? this.sampler : this.fallbackSynth!;
 
-      const notes = this.mergeTiedNotes(expandNotesForRepeats(track.notes, repeats, song.timeSignature[0]));
+      const notes = expandNotesForRepeats(track.notes, repeats, song.timeSignature[0]);
 
       notes.forEach(note => {
         if (note.isRest) return;
