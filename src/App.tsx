@@ -55,6 +55,7 @@ export default function App() {
   const [newRepeatType, setNewRepeatType] = useState<'start' | 'end'>('start');
 
   const [playheadBeat, setPlayheadBeat] = useState(-1);
+  const [seekBeat, setSeekBeat] = useState(0);
   const playheadRafRef = useRef<number | null>(null);
   const [jumpMeasure, setJumpMeasure] = useState<{ measure: number; id: number } | null>(null);
   const jumpMeasureIdRef = useRef(0);
@@ -169,7 +170,7 @@ export default function App() {
       setIsPlaying(false);
       setPlayingNotes(new Set());
     } else {
-      audio.play(song, loopEnabled, loopStart, loopEnd);
+      audio.play(song, loopEnabled, loopStart, loopEnd, seekBeat);
       setIsPlaying(true);
     }
   };
@@ -935,7 +936,9 @@ export default function App() {
             activeTrackIndex={activeTrackIndex}
             onSetActiveTrack={setActiveTrackIndex}
             onSetTrackNotes={setTrackNotes}
-            playheadBeat={playheadBeat}
+            playheadBeat={seekBeat > 0 && !isPlaying ? seekBeat : playheadBeat}
+            isPlaying={isPlaying}
+            onSeek={beat => { setSeekBeat(beat); setPlayheadBeat(beat); }}
             jumpToMeasure={jumpMeasure ?? undefined}
             pageView={pageView}
           />

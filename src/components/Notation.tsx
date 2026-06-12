@@ -150,6 +150,8 @@ export function Notation({
   onSetActiveTrack,
   onSetTrackNotes,
   playheadBeat,
+  isPlaying = false,
+  onSeek,
   jumpToMeasure,
   pageView = false,
 }: {
@@ -176,6 +178,8 @@ export function Notation({
   onSetActiveTrack?: (tIndex: number) => void;
   onSetTrackNotes?: (trackId: string, notes: NoteData[] | ((prev: NoteData[]) => NoteData[])) => void;
   playheadBeat?: number;
+  isPlaying?: boolean;
+  onSeek?: (beat: number) => void;
   jumpToMeasure?: { measure: number; id: number };
   pageView?: boolean;
 }) {
@@ -185,6 +189,9 @@ export function Notation({
   const [dragBox, setDragBox] = useState<DragBox | null>(null);
   const [noteDrag, setNoteDrag] = useState<NoteDragState | null>(null);
   const [noteResize, setNoteResize] = useState<NoteResizeState | null>(null);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [scrubBeat, setScrubBeat] = useState<number | null>(null);
+  const scrubRowRef = useRef<number>(0);
 
   useEffect(() => {
     if (!outerRef.current) return;
@@ -211,6 +218,23 @@ export function Notation({
     if (!containerRef.current) return;
     renderNotation(containerRef.current, song, 'dark', effectiveWidth, showGuitarTab, rowsPerPage, pageView ? interPageGap : 0);
   }, [song, effectiveWidth, showGuitarTab, rowsPerPage, pageView, interPageGap]);
+
+  const clientXToBeat = useCallback((clientX: number, rowIdx: number): number => {
+    const container = outerRef.current;
+    if (!container) return 0;
+    const rect = container.getBoundingClientRect();
+    const layoutX = clientX - rect.left + container.scrollLeft;
+    for (let cIdx = 0; cIdx < measuresPerRow; cIdx++) {
+      const segStart = P8 + getMeasureNoteStartX(cIdx, notesWidthPerMeasure);
+      const segEnd = segStart + notesWidthPerMeasure;
+      if (layoutX <= segEnd || cIdx === measuresPerRow - 1) {
+        const beatInMeasure = Math.max(0, Math.min(beatsPerMeasure, (layoutX - segStart) / PIXELS_PER_BEAT));
+        const mIdx = rowIdx * measuresPerRow + cIdx;
+        return Math.max(0, Math.min(totalMeasures * beatsPerMeasure, mIdx * beatsPerMeasure + beatInMeasure));
+      }
+    }
+    return 0;
+  }, [measuresPerRow, notesWidthPerMeasure, beatsPerMeasure, totalMeasures]);
 
   const handleGridClick = useCallback((tIndex: number, beat: number, pitch: string) => {
     const track = song.tracks[tIndex];
@@ -307,6 +331,12 @@ export function Notation({
   }, [onUpdateSong]);
 
   const handleGlobalMouseUp = useCallback(() => {
+    if (isScrubbing) {
+      if (scrubBeat !== null) onSeek?.(scrubBeat);
+      setIsScrubbing(false);
+      setScrubBeat(null);
+      return;
+    }
     if (noteResize) {
       commitNoteResize(noteResize);
       setNoteResize(null);
@@ -326,12 +356,21 @@ export function Notation({
       }
       setDragBox(null);
     }
-  }, [dragBox, noteDrag, noteResize, commitDragBox, commitNoteDrag, commitNoteResize, handleGridClick]);
+  }, [isScrubbing, scrubBeat, onSeek, dragBox, noteDrag, noteResize, commitDragBox, commitNoteDrag, commitNoteResize, handleGridClick]);
 
   useEffect(() => {
     window.addEventListener('mouseup', handleGlobalMouseUp);
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
   }, [handleGlobalMouseUp]);
+
+  useEffect(() => {
+    if (!isScrubbing) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      setScrubBeat(clientXToBeat(e.clientX, scrubRowRef.current));
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [isScrubbing, clientXToBeat]);
 
   // Arrow keys + delete (copy/paste handled in App.tsx)
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -614,17 +653,32 @@ export function Notation({
 
         {/* Playhead line */}
         {playheadBeat !== undefined && playheadBeat >= 0 && (() => {
-          const mIdx = Math.floor(playheadBeat / beatsPerMeasure);
+          const displayBeat = scrubBeat ?? playheadBeat;
+          const mIdx = Math.floor(displayBeat / beatsPerMeasure);
           if (mIdx >= totalMeasures) return null;
           const cIdx = mIdx % measuresPerRow;
-          const beatInMeasure = playheadBeat - mIdx * beatsPerMeasure;
+          const beatInMeasure = displayBeat - mIdx * beatsPerMeasure;
           const x = P8 + getMeasureNoteStartX(cIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT;
           const rowIdx = Math.floor(mIdx / measuresPerRow);
           const top = P8 + rowIdx * rowHeight + pgGap(rowIdx) + STAVE_Y_FIRST - GRID_TOP_OFFSET;
+          const canScrub = !isPlaying && !!onSeek;
           return (
             <div
-              className="absolute pointer-events-none z-30"
-              style={{ left: x, top, width: 2, height: rowHeight, background: 'rgba(212,175,55,0.75)', borderRadius: 1 }}
+              className={cn("absolute z-30", canScrub ? "cursor-ew-resize" : "pointer-events-none")}
+              style={{
+                left: x - (canScrub ? 4 : 0),
+                top,
+                width: canScrub ? 10 : 2,
+                height: rowHeight,
+                background: isScrubbing ? 'rgba(212,175,55,1)' : 'rgba(212,175,55,0.75)',
+                borderRadius: canScrub ? 5 : 1,
+              }}
+              onMouseDown={canScrub ? e => {
+                e.preventDefault();
+                scrubRowRef.current = rowIdx;
+                setIsScrubbing(true);
+                setScrubBeat(displayBeat);
+              } : undefined}
             />
           );
         })()}

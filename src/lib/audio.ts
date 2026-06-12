@@ -569,11 +569,14 @@ class AudioEngine {
     }
   }
 
-  play(song: SongData, loopEnabled?: boolean, loopStart?: number, loopEnd?: number) {
+  play(song: SongData, loopEnabled?: boolean, loopStart?: number, loopEnd?: number, startBeat = 0) {
     if (!this.initialized) return;
     if (Tone.Transport.state !== 'started') {
       this.scheduleSong(song, loopEnabled, loopStart, loopEnd);
-      Tone.Transport.start();
+      const offsetSecs = startBeat > 0
+        ? beatToSeconds(startBeat, song.tempo, song.tempoChanges ?? [])
+        : 0;
+      Tone.Transport.start(Tone.now(), offsetSecs > 0 ? offsetSecs : undefined);
     }
   }
 
