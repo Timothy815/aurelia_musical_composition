@@ -55,7 +55,7 @@ export default function App() {
   const [newRepeatType, setNewRepeatType] = useState<'start' | 'end'>('start');
 
   const [playheadBeat, setPlayheadBeat] = useState(-1);
-  const [seekBeat, setSeekBeat] = useState(0);
+  const [seekBeat, setSeekBeat] = useState(-1);
   const playheadRafRef = useRef<number | null>(null);
   const [jumpMeasure, setJumpMeasure] = useState<{ measure: number; id: number } | null>(null);
   const jumpMeasureIdRef = useRef(0);
@@ -166,11 +166,13 @@ export default function App() {
   const togglePlay = async () => {
     await audio.init();
     if (isPlaying) {
+      const stoppedAt = audio.currentBeat;
       audio.stop();
       setIsPlaying(false);
       setPlayingNotes(new Set());
+      if (stoppedAt >= 0) setSeekBeat(stoppedAt);
     } else {
-      audio.play(song, loopEnabled, loopStart, loopEnd, seekBeat);
+      audio.play(song, loopEnabled, loopStart, loopEnd, Math.max(0, seekBeat));
       setIsPlaying(true);
     }
   };
@@ -936,7 +938,7 @@ export default function App() {
             activeTrackIndex={activeTrackIndex}
             onSetActiveTrack={setActiveTrackIndex}
             onSetTrackNotes={setTrackNotes}
-            playheadBeat={seekBeat > 0 && !isPlaying ? seekBeat : playheadBeat}
+            playheadBeat={seekBeat >= 0 && !isPlaying ? seekBeat : playheadBeat}
             isPlaying={isPlaying}
             onSeek={beat => { setSeekBeat(beat); setPlayheadBeat(beat); }}
             jumpToMeasure={jumpMeasure ?? undefined}
