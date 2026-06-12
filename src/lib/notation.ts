@@ -230,76 +230,157 @@ function buildStaveNote(VF: any, chordNotes: NoteData[], fg: string, clef = 'tre
   return sn;
 }
 
+// ── Note pre-processing for fidelity rendering ───────────────────────────────
+
+interface RenderSeg {
+  notes: NoteData[];
+  start: number;
+  duration: number;
+  chainId: string;
+  tieFromPrev: boolean;
+  tieToNext: boolean;
+}
+
+const STD_DURS = [4, 3, 2, 1.5, 1, 0.75, 0.5, 0.25];
+
+function splitToStandardDurations(beats: number): number[] {
+  const result: number[] = [];
+  let rem = Math.round(beats * 1000) / 1000;
+  while (rem > 0.001) {
+    const d = STD_DURS.find(s => s <= rem + 0.001);
+    if (d == null) break;
+    result.push(d);
+    rem = Math.round((rem - d) * 1000) / 1000;
+  }
+  return result.length > 0 ? result : [0.25];
+}
+
+function buildTrackSegments(notes: NoteData[], beatsPerMeasure: number): Map<number, RenderSeg[]> {
+  const byMeasure = new Map<number, RenderSeg[]>();
+  const addSeg = (mIdx: number, seg: RenderSeg) => {
+    if (!byMeasure.has(mIdx)) byMeasure.set(mIdx, []);
+    byMeasure.get(mIdx)!.push(seg);
+  };
+
+  // Group simultaneous notes into chords
+  const chords = new Map<number, NoteData[]>();
+  notes.forEach(n => {
+    const k = Math.round(n.start * 1000) / 1000;
+    if (!chords.has(k)) chords.set(k, []);
+    chords.get(k)!.push(n);
+  });
+
+  chords.forEach((chord, beatKey) => {
+    const totalDur = chord[0].duration;
+    const chainId = chord.map(n => n.id).join('|');
+    let remaining = totalDur;
+    let pos = beatKey;
+    let prevSegExists = false;
+
+    while (remaining > 0.001) {
+      const mIdx = Math.floor(pos / beatsPerMeasure);
+      const mEnd = (mIdx + 1) * beatsPerMeasure;
+      const availInMeasure = Math.min(mEnd - pos, remaining);
+      const stdDurs = splitToStandardDurations(availInMeasure);
+      const crossesMeasure = remaining > availInMeasure + 0.001;
+
+      for (let i = 0; i < stdDurs.length; i++) {
+        const dur = stdDurs[i];
+        addSeg(mIdx, {
+          notes: chord,
+          start: Math.round(pos * 1000) / 1000,
+          duration: dur,
+          chainId,
+          tieFromPrev: prevSegExists || i > 0,
+          tieToNext: i < stdDurs.length - 1 || crossesMeasure,
+        });
+        pos = Math.round((pos + dur) * 1000) / 1000;
+        prevSegExists = true;
+      }
+      remaining = Math.round((remaining - availInMeasure) * 1000) / 1000;
+    }
+  });
+
+  return byMeasure;
+}
+
+// tieState maps `chainId|vKey` → the StaveNote awaiting a tie to the next segment
 function renderTrackMeasure(
   VF: any,
   context: any,
-  track: { notes: NoteData[] },
-  song: SongData,
+  segments: RenderSeg[],
+  beatsPerMeasure: number,
   mIndex: number,
   layout: NotationLayout,
   stave: any,
   fg: string,
-  clef = 'treble'
+  clef: string,
+  tieState: Map<string, any>
 ) {
-  const { beatsPerMeasure, notesWidthPerMeasure, measuresPerRow } = layout;
+  const { notesWidthPerMeasure, measuresPerRow } = layout;
   const colIdx = mIndex % measuresPerRow;
   const mStart = mIndex * beatsPerMeasure;
-  const mEnd = (mIndex + 1) * beatsPerMeasure;
-
-  const notesInMeasure = track.notes.filter(n =>
-    n.start >= mStart - 0.001 && n.start < mEnd - 0.001
-  );
-
-  const byBeat = new Map<number, NoteData[]>();
-  notesInMeasure.forEach(n => {
-    const k = Math.round(n.start * 100) / 100;
-    if (!byBeat.has(k)) byBeat.set(k, []);
-    byBeat.get(k)!.push(n);
-  });
-
-  const hasMultiVoice = track.notes.some(n => n.voice === 2);
   const noteStartX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure);
+  const halfMeasure = beatsPerMeasure / 2;
+  const hasMultiVoice = segments.some(s => s.notes.some(n => n.voice === 2));
+  const beamGroups = new Map<string, any[]>(); // `vKey|halfGroup` → StaveNotes
 
-  const v1Beamable: any[] = [];
-  const v2Beamable: any[] = [];
+  [...segments].sort((a, b) => a.start - b.start).forEach(seg => {
+    const beatInMeasure = seg.start - mStart;
+    const desiredX = noteStartX + beatInMeasure * PIXELS_PER_BEAT;
+    const isRest = seg.notes[0]?.isRest ?? false;
+    const v1Notes = hasMultiVoice ? seg.notes.filter(n => (n.voice ?? 1) === 1) : seg.notes;
+    const v2Notes = hasMultiVoice ? seg.notes.filter(n => n.voice === 2) : [];
 
-  [...byBeat.entries()].sort(([a], [b]) => a - b).forEach(([beat, chord]) => {
-    const beatInMeasure = beat - mStart;
-    const v1 = chord.filter(n => (n.voice ?? 1) === 1);
-    const v2 = chord.filter(n => n.voice === 2);
-
-    const renderGroup = (notes: NoteData[], stemDir: number | null) => {
-      if (notes.length === 0) return null;
-      const sn = buildStaveNote(VF, notes, fg, clef);
-      if (stemDir !== null) {
-        try { sn.setStemDirection(stemDir); } catch (_) {}
-      }
+    const renderVoice = (voiceNotes: NoteData[], stemDir: number | null, vKey: string) => {
+      if (voiceNotes.length === 0) return null;
+      const overridden = voiceNotes.map(n => ({ ...n, duration: seg.duration }));
+      const sn = buildStaveNote(VF, overridden, fg, clef);
+      if (stemDir !== null) { try { sn.setStemDirection(stemDir); } catch (_) {} }
       const tc = new VF.TickContext();
       tc.addTickable(sn);
-      // VexFlow adds stave.getNoteStartX() + VEXFLOW_NOTE_OFFSET to tc.getX() when rendering,
-      // so subtract that to land at our desired absolute position.
-      const desiredX = noteStartX + beatInMeasure * PIXELS_PER_BEAT;
+      // VexFlow adds stave.getNoteStartX() + VEXFLOW_NOTE_OFFSET to tc.getX() when rendering
       tc.preFormat().setX(desiredX - stave.getNoteStartX() - VEXFLOW_NOTE_OFFSET);
       sn.setStave(stave);
       sn.setContext(context).draw();
+
+      const tieKey = `${seg.chainId}|${vKey}`;
+      if (seg.tieFromPrev && !isRest && tieState.has(tieKey)) {
+        try {
+          const prev = tieState.get(tieKey)!;
+          const idxs = Array.from({ length: overridden.length }, (_, i) => i);
+          new VF.StaveTie({ first_note: prev, last_note: sn, first_indices: idxs, last_indices: idxs })
+            .setContext(context).draw();
+        } catch (_) {}
+        tieState.delete(tieKey);
+      }
+      if (seg.tieToNext && !isRest) tieState.set(tieKey, sn);
+
       return sn;
     };
 
-    const sn1 = renderGroup(v1, hasMultiVoice ? 1 : null);
-    const sn2 = renderGroup(v2, -1);
+    const sn1 = renderVoice(v1Notes, hasMultiVoice ? 1 : null, 'v1');
+    const sn2 = renderVoice(v2Notes, -1, 'v2');
 
-    if (sn1 && !v1[0]?.isRest && v1[0]?.duration <= 0.5) v1Beamable.push(sn1);
-    if (sn2 && !v2[0]?.isRest && v2[0]?.duration <= 0.5) v2Beamable.push(sn2);
+    const collectBeam = (sn: any, vKey: string) => {
+      if (sn && !isRest && seg.duration <= 0.5) {
+        const g = `${vKey}|${Math.floor(beatInMeasure / halfMeasure)}`;
+        if (!beamGroups.has(g)) beamGroups.set(g, []);
+        beamGroups.get(g)!.push(sn);
+      }
+    };
+    collectBeam(sn1, 'v1');
+    collectBeam(sn2, 'v2');
   });
 
-  for (const group of [v1Beamable, v2Beamable]) {
+  beamGroups.forEach(group => {
     if (group.length >= 2) {
       try {
         const beams = VF.Beam.generateBeams(group);
         beams.forEach((b: any) => b.setContext(context).draw());
       } catch (_) {}
     }
-  }
+  });
 }
 
 // Returns the base Y offset for a row, accounting for inter-page gaps in page view.
@@ -343,6 +424,17 @@ export function renderNotation(
   }
 
   song.tracks.forEach((track, tIndex) => {
+    const trebleNotes = track.grandStaff
+      ? track.notes.filter(n => n.isRest || noteToMidi(n.pitch) >= 60)
+      : track.notes;
+    const bassNotes = track.grandStaff
+      ? track.notes.filter(n => !n.isRest && noteToMidi(n.pitch) < 60)
+      : [];
+    const trebleSegs = buildTrackSegments(trebleNotes, beatsPerMeasure);
+    const bassSegs   = buildTrackSegments(bassNotes, beatsPerMeasure);
+    const trebleTies = new Map<string, any>();
+    const bassTies   = new Map<string, any>();
+
     for (let mIndex = 0; mIndex < totalMeasures; mIndex++) {
       const rowIdx = Math.floor(mIndex / measuresPerRow);
       const colIdx = mIndex % measuresPerRow;
@@ -390,13 +482,9 @@ export function renderNotation(
         try { const l = new VF.StaveConnector(stave, bassStave); l.setType((VF.StaveConnector as any).type.SINGLE_LEFT); l.setContext(context).draw(); } catch (_) {}
       }
 
-      const trebleTrack = track.grandStaff
-        ? { notes: track.notes.filter(n => n.isRest || noteToMidi(n.pitch) >= 60) }
-        : track;
-      renderTrackMeasure(VF, context, trebleTrack, song, mIndex, layout, stave, fg, 'treble');
+      renderTrackMeasure(VF, context, trebleSegs.get(mIndex) ?? [], beatsPerMeasure, mIndex, layout, stave, fg, 'treble', trebleTies);
       if (track.grandStaff && bassStave) {
-        const bassTrack = { notes: track.notes.filter(n => !n.isRest && noteToMidi(n.pitch) < 60) };
-        renderTrackMeasure(VF, context, bassTrack, song, mIndex, layout, bassStave, fg, 'bass');
+        renderTrackMeasure(VF, context, bassSegs.get(mIndex) ?? [], beatsPerMeasure, mIndex, layout, bassStave, fg, 'bass', bassTies);
       }
 
       if (tIndex === 0) {
