@@ -103,6 +103,10 @@ export default function App() {
   // Keep MIDI refs in sync with latest render state
   useEffect(() => { songTempoRef.current = song.tempo; }, [song.tempo]);
   useEffect(() => { audio.setEffects(effectsSettings); }, [effectsSettings]);
+  useEffect(() => {
+    const preset = song.tracks[activeTrackIndex]?.instrument ?? 'piano';
+    audio.setActivePreset(preset);
+  }, [activeTrackIndex, song.tracks]);
 
   useEffect(() => {
     if (!isPlaying) {

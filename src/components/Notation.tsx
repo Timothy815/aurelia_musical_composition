@@ -319,34 +319,48 @@ export function Notation({
     const deltaBeat = drag.endBeat - drag.startBeat;
     const deltaR = drag.endRIndex - drag.startRIndex;
     if (deltaBeat === 0 && deltaR === 0) return;
-    onUpdateSong(prev => ({
-      ...prev,
-      tracks: prev.tracks.map(t => ({
-        ...t,
-        notes: t.notes.map(n => {
-          if (!drag.noteIds.includes(n.id)) return n;
-          const newStart = Math.max(0, n.start + deltaBeat);
-          const pitchIdx = PITCHES.indexOf(n.pitch);
-          const newPitchIdx = Math.max(0, Math.min(PITCHES.length - 1, pitchIdx + deltaR));
-          return { ...n, start: newStart, pitch: PITCHES[newPitchIdx] };
-        })
-      }))
-    }));
-  }, [onUpdateSong]);
+    const moveNote = (n: NoteData) => {
+      const newStart = Math.max(0, n.start + deltaBeat);
+      const pitchIdx = PITCHES.indexOf(n.pitch);
+      const newPitchIdx = Math.max(0, Math.min(PITCHES.length - 1, pitchIdx + deltaR));
+      return { ...n, start: newStart, pitch: PITCHES[newPitchIdx] };
+    };
+    const affectedTracks = song.tracks.filter(t => t.notes.some(n => drag.noteIds.includes(n.id)));
+    if (onSetTrackNotes && affectedTracks.length === 1) {
+      onSetTrackNotes(affectedTracks[0].id, prevNotes =>
+        prevNotes.map(n => drag.noteIds.includes(n.id) ? moveNote(n) : n)
+      );
+    } else {
+      onUpdateSong(prev => ({
+        ...prev,
+        tracks: prev.tracks.map(t => ({
+          ...t,
+          notes: t.notes.map(n => drag.noteIds.includes(n.id) ? moveNote(n) : n)
+        }))
+      }));
+    }
+  }, [song.tracks, onSetTrackNotes, onUpdateSong]);
 
   const commitNoteResize = useCallback((resize: NoteResizeState) => {
     const minDur = 1 / GRID_SUBDIVISIONS;
     const rawDur = resize.currentEndBeat - resize.noteStart;
     const snapped = Math.max(minDur, Math.round(rawDur * GRID_SUBDIVISIONS) / GRID_SUBDIVISIONS);
     if (Math.abs(snapped - resize.originalDuration) < 0.001) return;
-    onUpdateSong(prev => ({
-      ...prev,
-      tracks: prev.tracks.map(t => ({
-        ...t,
-        notes: t.notes.map(n => n.id === resize.noteId ? { ...n, duration: snapped } : n)
-      }))
-    }));
-  }, [onUpdateSong]);
+    const track = song.tracks[resize.tIndex];
+    if (onSetTrackNotes && track) {
+      onSetTrackNotes(track.id, prevNotes =>
+        prevNotes.map(n => n.id === resize.noteId ? { ...n, duration: snapped } : n)
+      );
+    } else {
+      onUpdateSong(prev => ({
+        ...prev,
+        tracks: prev.tracks.map(t => ({
+          ...t,
+          notes: t.notes.map(n => n.id === resize.noteId ? { ...n, duration: snapped } : n)
+        }))
+      }));
+    }
+  }, [song.tracks, onSetTrackNotes, onUpdateSong]);
 
   const handleGlobalMouseUp = useCallback(() => {
     if (isScrubbing) {
@@ -398,31 +412,33 @@ export function Notation({
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       if (selectedNoteIds.size === 0) return;
-      onUpdateSong(prev => {
-        const selectedNotes = prev.tracks.flatMap(t => t.notes).filter(n => selectedNoteIds.has(n.id));
-        // Strip accidentals to find the grid row — notes like "Eb4" live on the "E4" row
-        const rowOf = (pitch: string) => PITCHES.indexOf(pitch.replace(/[#b]/, ''));
-        // All notes must be able to move — if any hit the boundary, hold the whole chord
-        const canAllMove = selectedNotes.every(n => {
-          const idx = rowOf(n.pitch);
-          if (idx === -1) return false;
-          const next = e.key === 'ArrowUp' ? idx - 1 : idx + 1;
-          return next >= 0 && next < PITCHES.length;
-        });
-        if (!canAllMove) return prev;
-        const newTracks = prev.tracks.map(t => ({
-          ...t,
-          notes: t.notes.map(n => {
-            if (!selectedNoteIds.has(n.id)) return n;
-            const idx = rowOf(n.pitch);
-            if (idx === -1) return n;
-            const next = e.key === 'ArrowUp' ? idx - 1 : idx + 1;
-            if (onPlayNote && !n.isRest) onPlayNote(PITCHES[next]);
-            return { ...n, pitch: PITCHES[next] };
-          })
-        }));
-        return { ...prev, tracks: newTracks };
+      const rowOf = (pitch: string) => PITCHES.indexOf(pitch.replace(/[#b]/, ''));
+      const selectedNotes = song.tracks.flatMap(t => t.notes).filter(n => selectedNoteIds.has(n.id));
+      const canAllMove = selectedNotes.every(n => {
+        const idx = rowOf(n.pitch);
+        if (idx === -1) return false;
+        const next = e.key === 'ArrowUp' ? idx - 1 : idx + 1;
+        return next >= 0 && next < PITCHES.length;
       });
+      if (!canAllMove) return;
+      selectedNotes.forEach(n => {
+        if (onPlayNote && !n.isRest) {
+          const idx = rowOf(n.pitch);
+          onPlayNote(PITCHES[e.key === 'ArrowUp' ? idx - 1 : idx + 1]);
+        }
+      });
+      const shiftNote = (n: NoteData) => {
+        if (!selectedNoteIds.has(n.id)) return n;
+        const idx = rowOf(n.pitch);
+        if (idx === -1) return n;
+        return { ...n, pitch: PITCHES[e.key === 'ArrowUp' ? idx - 1 : idx + 1] };
+      };
+      const affectedTracks = song.tracks.filter(t => t.notes.some(n => selectedNoteIds.has(n.id)));
+      if (onSetTrackNotes && affectedTracks.length === 1) {
+        onSetTrackNotes(affectedTracks[0].id, prevNotes => prevNotes.map(shiftNote));
+      } else {
+        onUpdateSong(prev => ({ ...prev, tracks: prev.tracks.map(t => ({ ...t, notes: t.notes.map(shiftNote) })) }));
+      }
       return;
     }
 
@@ -478,20 +494,26 @@ export function Notation({
 
     if (e.key === 'Backspace' || e.key === 'Delete') {
       if (selectedNoteIds.size > 0) {
-        // Multi-track deletion — replace gaps with rests
-        onUpdateSong(prev => {
-          let changed = false;
-          const newTracks = prev.tracks.map(t => {
-            const before = t.notes.length;
-            const hasSelected = t.notes.some(n => selectedNoteIds.has(n.id));
-            if (!hasSelected) return t;
-            const newNotes = removeNotesWithRests(t.notes, selectedNoteIds);
-            if (newNotes.length !== before || newNotes.some(n => n.isRest && !t.notes.find(o => o.id === n.id))) changed = true;
-            return { ...t, notes: newNotes };
+        const affectedTracks = song.tracks.filter(t => t.notes.some(n => selectedNoteIds.has(n.id)));
+        setSelectedNoteIds(new Set());
+        if (onSetTrackNotes && affectedTracks.length === 1) {
+          onSetTrackNotes(affectedTracks[0].id, prevNotes =>
+            removeNotesWithRests(prevNotes, selectedNoteIds)
+          );
+        } else {
+          // Multi-track deletion — replace gaps with rests
+          onUpdateSong(prev => {
+            let changed = false;
+            const newTracks = prev.tracks.map(t => {
+              const hasSelected = t.notes.some(n => selectedNoteIds.has(n.id));
+              if (!hasSelected) return t;
+              const newNotes = removeNotesWithRests(t.notes, selectedNoteIds);
+              if (newNotes.length !== t.notes.length || newNotes.some(n => n.isRest && !t.notes.find(o => o.id === n.id))) changed = true;
+              return { ...t, notes: newNotes };
+            });
+            return changed ? { ...prev, tracks: newTracks } : prev;
           });
-          setSelectedNoteIds(new Set());
-          return changed ? { ...prev, tracks: newTracks } : prev;
-        });
+        }
       } else {
         // Pop last chord from active track — per-track history
         const tIdx = (activeTrackIndex < song.tracks.length && song.tracks[activeTrackIndex].notes.length > 0)

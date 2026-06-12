@@ -234,7 +234,7 @@ export function LeftSidebarPanel({
         <div className="mt-4">
           <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-2">Dynamics</h2>
           <div className="flex flex-wrap gap-1">
-            {(['pp', 'p', 'mp', 'mf', 'f', 'ff'] as DynamicMarking[]).map(d => (
+            {(['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff'] as DynamicMarking[]).map(d => (
               <div
                 key={d}
                 onClick={() => {

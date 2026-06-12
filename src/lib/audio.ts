@@ -2,7 +2,19 @@ import * as Tone from 'tone';
 import { SongData, NoteData, InstrumentPreset, EffectsSettings, TempoChange, RepeatMarker } from '../types';
 
 const DYNAMIC_VELOCITY: Record<string, number> = {
-  pp: 0.15, p: 0.3, mp: 0.5, mf: 0.65, f: 0.8, ff: 1.0,
+  ppp: 0.08, pp: 0.18, p: 0.32, mp: 0.5, mf: 0.65, f: 0.8, ff: 0.92, fff: 1.0,
+};
+
+const ARTICULATION_VEL: Record<string, number> = {
+  staccato: 1.0,   // unchanged — duration handles the difference
+  accent:   1.35,  // louder attack
+  tenuto:   1.05,  // slight stress, full duration
+};
+
+const ARTICULATION_DUR: Record<string, number> = {
+  staccato: 0.45,
+  accent:   1.0,
+  tenuto:   1.0,
 };
 
 // ── Tempo / repeat helpers ────────────────────────────────────────────────────
@@ -80,9 +92,15 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
           notes.forEach(n => { voices[vi % NUM_VOICES].triggerAttack(n, time ?? Tone.now()); vi++; });
         },
         triggerRelease: (_note?: any) => {},
-        triggerAttackRelease: (note: string | string[], _dur?: any, time?: any, _vel?: any) => {
+        triggerAttackRelease: (note: string | string[], _dur?: any, time?: any, vel?: any) => {
           const notes = Array.isArray(note) ? note : [note];
-          notes.forEach(n => { voices[vi % NUM_VOICES].triggerAttack(n, time ?? Tone.now()); vi++; });
+          const v = typeof vel === 'number' ? Math.max(0.01, vel) : 1;
+          notes.forEach(n => {
+            const voice = voices[vi % NUM_VOICES];
+            gain.gain.setValueAtTime(v, time ?? Tone.now());
+            voice.triggerAttack(n, time ?? Tone.now());
+            vi++;
+          });
         },
         dispose: () => { voices.forEach(v => { try { v.dispose(); } catch (_) {} }); gain.dispose(); },
       };
@@ -183,8 +201,9 @@ class AudioEngine {
   trackChainNodes: Map<string, Tone.ToneAudioNode[]> = new Map();
   realtimeNotes = new Set<string>();
   private pendingReleases = new Set<string>();
-  private realtimeNoteSynth = new Map<string, 'sampler' | 'fallback'>();
+  private realtimeNoteSynth = new Map<string, 'sampler' | 'fallback' | 'custom'>();
   private realtimeFallback: Tone.PolySynth | null = null;
+  private customRealtime: { synth: any; chain: Tone.ToneAudioNode; preset: InstrumentPreset } | null = null;
   private initPromise: Promise<void> | null = null;
   private midiActivePitches = new Set<string>();
   private midiNoteSource = new Map<string, 'sampler' | 'fallback'>();
@@ -323,6 +342,23 @@ class AudioEngine {
     return (this.sampler && this.sampler.loaded) ? this.sampler : (this.fallbackSynth!);
   }
 
+  setActivePreset(preset: InstrumentPreset) {
+    if (!this.initialized) return;
+    if (this.customRealtime?.preset === preset) return;
+    // Release any held notes on the old instrument
+    for (const p of this.realtimeNotes) this._releaseRealtimeNote(p);
+    this.realtimeNotes.clear();
+    if (this.customRealtime) {
+      try { this.customRealtime.chain.dispose(); } catch (_) {}
+      this.customRealtime = null;
+    }
+    if (preset !== 'piano') {
+      const { synth, chain } = makeInstrument(preset);
+      chain.connect(this.masterBus!);
+      this.customRealtime = { synth, chain, preset };
+    }
+  }
+
   playNoteRealtime(pitch: string) {
     if (!this.initialized) return;
     if (this.pendingReleases.has(pitch)) {
@@ -331,7 +367,10 @@ class AudioEngine {
     }
     if (this.realtimeNotes.has(pitch)) this._releaseRealtimeNote(pitch);
     this.realtimeNotes.add(pitch);
-    if (this.sampler) {
+    if (this.customRealtime) {
+      this.customRealtime.synth.triggerAttack(pitch, Tone.now());
+      this.realtimeNoteSynth.set(pitch, 'custom');
+    } else if (this.sampler) {
       this.sampler.triggerAttack(pitch);
       this.realtimeNoteSynth.set(pitch, 'sampler');
     } else {
@@ -354,7 +393,9 @@ class AudioEngine {
   private _releaseRealtimeNote(pitch: string) {
     const synthType = this.realtimeNoteSynth.get(pitch);
     this.realtimeNoteSynth.delete(pitch);
-    if (synthType === 'sampler') {
+    if (synthType === 'custom') {
+      try { this.customRealtime?.synth.triggerRelease?.(pitch, Tone.now()); } catch (_) {}
+    } else if (synthType === 'sampler') {
       try { this.sampler?.triggerRelease(pitch); } catch (_) {}
     } else {
       try { this.realtimeFallback?.triggerRelease(pitch); } catch (_) {}
@@ -547,8 +588,10 @@ class AudioEngine {
         const bpm = bpmAtBeat(note.start, song.tempo, tempoChanges);
         const durationSecs = note.duration * (60 / bpm);
         const baseVel = DYNAMIC_VELOCITY[note.dynamic ?? 'mf'] ?? 0.65;
-        const velocity = Math.min(1, baseVel * trackVol);
-        const playDuration = note.articulation === 'staccato' ? durationSecs * 0.45 : durationSecs;
+        const artVel = note.articulation ? (ARTICULATION_VEL[note.articulation] ?? 1.0) : 1.0;
+        const artDur = note.articulation ? (ARTICULATION_DUR[note.articulation] ?? 1.0) : 1.0;
+        const velocity = Math.min(1, baseVel * artVel * trackVol);
+        const playDuration = durationSecs * artDur;
 
         Tone.Transport.schedule((time) => {
           try {
