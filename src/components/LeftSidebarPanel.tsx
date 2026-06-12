@@ -380,7 +380,7 @@ export function LeftSidebarPanel({
             onClick={handleAppendToScore}
             className="w-full mt-4 bg-[#D4AF37] hover:bg-[#C19E30] text-[#0A0A0B] font-bold uppercase tracking-wider text-[10px] py-2 flex items-center justify-center rounded transition-colors"
           >
-            {activeNotes.size > 0 || isRest ? 'Add to Score (Enter)' : '↩ Repeat Last (Enter)'}
+            {activeNotes.size > 0 || isRest ? 'Add to Score (Enter)' : 'Repeat Last (Enter)'}
           </button>
         )}
       </div>
