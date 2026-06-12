@@ -119,6 +119,8 @@ export function Notation({
   activeTrackIndex = 0,
   onSetActiveTrack,
   onSetTrackNotes,
+  playheadBeat,
+  jumpToMeasure,
 }: {
   song: SongData;
   onUpdateSong: (s: SongData | ((s: SongData) => SongData)) => void;
@@ -142,6 +144,8 @@ export function Notation({
   activeTrackIndex?: number;
   onSetActiveTrack?: (tIndex: number) => void;
   onSetTrackNotes?: (trackId: string, notes: NoteData[] | ((prev: NoteData[]) => NoteData[])) => void;
+  playheadBeat?: number;
+  jumpToMeasure?: { measure: number; id: number };
 }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -402,6 +406,31 @@ export function Notation({
 
   const { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgHeight, svgWidth, effectiveTrackHeight, rowHeight, trackYOffsets } = layout;
 
+  // Playhead auto-scroll: only fires when the active row changes, not every RAF frame
+  const prevPlayheadRowRef = useRef(-1);
+  const playheadRow = (playheadBeat !== undefined && playheadBeat >= 0 && measuresPerRow > 0)
+    ? Math.floor(Math.floor(playheadBeat / beatsPerMeasure) / measuresPerRow)
+    : -1;
+
+  useEffect(() => {
+    if (playheadRow < 0 || !outerRef.current) {
+      prevPlayheadRowRef.current = -1;
+      return;
+    }
+    if (playheadRow === prevPlayheadRowRef.current) return;
+    prevPlayheadRowRef.current = playheadRow;
+    const rowY = P8 + playheadRow * rowHeight + STAVE_Y_FIRST;
+    outerRef.current.scrollTo({ top: Math.max(0, rowY - 60), behavior: 'smooth' });
+  }, [playheadRow, rowHeight]);
+
+  useEffect(() => {
+    if (!jumpToMeasure || !outerRef.current) return;
+    const mIdx = jumpToMeasure.measure - 1;
+    const rowIdx = measuresPerRow > 0 ? Math.floor(mIdx / measuresPerRow) : 0;
+    const y = P8 + rowIdx * rowHeight + STAVE_Y_FIRST;
+    outerRef.current.scrollTo({ top: Math.max(0, y - 60), behavior: 'smooth' });
+  }, [jumpToMeasure, measuresPerRow, rowHeight]);
+
   const uniqueChordsForTab = useMemo<ChordForTab[]>(() => {
     if (!showGuitarTab) return [];
     return collectUniqueChordsForTab(song);
@@ -489,6 +518,23 @@ export function Notation({
             </div>
           );
         })}
+
+        {/* Playhead line */}
+        {playheadBeat !== undefined && playheadBeat >= 0 && (() => {
+          const mIdx = Math.floor(playheadBeat / beatsPerMeasure);
+          if (mIdx >= totalMeasures) return null;
+          const cIdx = mIdx % measuresPerRow;
+          const beatInMeasure = playheadBeat - mIdx * beatsPerMeasure;
+          const x = P8 + getMeasureNoteStartX(cIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT;
+          const rowIdx = Math.floor(mIdx / measuresPerRow);
+          const top = P8 + rowIdx * rowHeight + STAVE_Y_FIRST - GRID_TOP_OFFSET;
+          return (
+            <div
+              className="absolute pointer-events-none z-30"
+              style={{ left: x, top, width: 2, height: rowHeight, background: 'rgba(212,175,55,0.75)', borderRadius: 1 }}
+            />
+          );
+        })()}
 
         {/* Per-track, per-measure grid sections */}
         {song.tracks.map((track, tIndex) =>

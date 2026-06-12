@@ -53,6 +53,11 @@ export default function App() {
   const [newRepeatMeasure, setNewRepeatMeasure] = useState('1');
   const [newRepeatType, setNewRepeatType] = useState<'start' | 'end'>('start');
 
+  const [playheadBeat, setPlayheadBeat] = useState(-1);
+  const playheadRafRef = useRef<number | null>(null);
+  const [jumpMeasure, setJumpMeasure] = useState<{ measure: number; id: number } | null>(null);
+  const jumpMeasureIdRef = useRef(0);
+
   // MIDI recording state
   const [midiEnabled, setMidiEnabled] = useState(false);
   const [midiDeviceName, setMidiDeviceName] = useState<string | null>(null);
@@ -96,6 +101,17 @@ export default function App() {
   // Keep MIDI refs in sync with latest render state
   useEffect(() => { songTempoRef.current = song.tempo; }, [song.tempo]);
   useEffect(() => { audio.setEffects(effectsSettings); }, [effectsSettings]);
+
+  useEffect(() => {
+    if (!isPlaying) {
+      setPlayheadBeat(-1);
+      if (playheadRafRef.current !== null) { cancelAnimationFrame(playheadRafRef.current); playheadRafRef.current = null; }
+      return;
+    }
+    const tick = () => { setPlayheadBeat(audio.currentBeat); playheadRafRef.current = requestAnimationFrame(tick); };
+    playheadRafRef.current = requestAnimationFrame(tick);
+    return () => { if (playheadRafRef.current !== null) { cancelAnimationFrame(playheadRafRef.current); playheadRafRef.current = null; } };
+  }, [isPlaying]);
   useEffect(() => { quantGridRef.current = quantGrid; }, [quantGrid]);
 
   // Stable MIDI message handler — reads mutable state from refs
@@ -677,6 +693,24 @@ export default function App() {
           >
             {metronomeStatus ? 'Click ON' : 'Click OFF'}
           </span>
+          <div className="w-px h-3 bg-[#1F1F21]" />
+          {/* Measure jump */}
+          <div className="flex items-center gap-1" title="Jump to measure (Enter)">
+            <span className="text-[10px] font-mono text-[#8E8E93]">M</span>
+            <input
+              type="number"
+              min={1}
+              placeholder="—"
+              onKeyDown={e => {
+                if (e.key !== 'Enter') return;
+                const m = parseInt((e.target as HTMLInputElement).value);
+                if (!isNaN(m) && m >= 1) { jumpMeasureIdRef.current++; setJumpMeasure({ measure: m, id: jumpMeasureIdRef.current }); }
+                (e.target as HTMLInputElement).value = '';
+                (e.target as HTMLInputElement).blur();
+              }}
+              className="bg-transparent border-none outline-none focus:ring-0 text-[10px] font-mono text-center text-inherit w-10 p-0"
+            />
+          </div>
         </div>
 
         {/* Loop */}
@@ -889,6 +923,8 @@ export default function App() {
             activeTrackIndex={activeTrackIndex}
             onSetActiveTrack={setActiveTrackIndex}
             onSetTrackNotes={setTrackNotes}
+            playheadBeat={playheadBeat}
+            jumpToMeasure={jumpMeasure ?? undefined}
           />
         </main>
 

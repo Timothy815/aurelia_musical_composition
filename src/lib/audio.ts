@@ -573,6 +573,11 @@ class AudioEngine {
     const db = value === 0 ? -Infinity : 20 * Math.log10(value);
     Tone.getDestination().volume.value = db;
   }
+
+  get currentBeat(): number {
+    if (!this.initialized || Tone.Transport.state !== 'started') return -1;
+    return Tone.Transport.ticks / Tone.Transport.PPQ;
+  }
 }
 
 export const audio = new AudioEngine();
