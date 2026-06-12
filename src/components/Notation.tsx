@@ -126,6 +126,24 @@ type NoteResizeState = {
   currentEndBeat: number;
 };
 
+// Returns notes with removed IDs gone and a rest inserted at each beat that
+// becomes empty (no note OR existing rest at that start position).
+function removeNotesWithRests(allNotes: NoteData[], removedIds: Set<string>): NoteData[] {
+  const removed = allNotes.filter(n => removedIds.has(n.id));
+  const remaining = allNotes.filter(n => !removedIds.has(n.id));
+  // collect beat positions that lost all coverage
+  const beatDur = new Map<number, number>();
+  for (const n of removed) {
+    if (!n.isRest) beatDur.set(n.start, Math.max(beatDur.get(n.start) ?? 0, n.duration));
+  }
+  const rests: NoteData[] = [];
+  for (const [start, dur] of beatDur) {
+    const covered = remaining.some(n => Math.abs(n.start - start) < 0.001);
+    if (!covered) rests.push({ id: generateId(), pitch: 'B4', start, duration: dur, isRest: true });
+  }
+  return [...remaining, ...rests];
+}
+
 export function Notation({
   song,
   onUpdateSong,
@@ -247,7 +265,7 @@ export function Notation({
 
     if (existingIdx !== -1) {
       const removedId = track.notes[existingIdx].id;
-      const newNotes = track.notes.filter((_, i) => i !== existingIdx);
+      const newNotes = removeNotesWithRests(track.notes, new Set([removedId]));
       setSelectedNoteIds(prev => { const n = new Set(prev); n.delete(removedId); return n; });
       if (onSetTrackNotes) {
         onSetTrackNotes(track.id, newNotes);
@@ -460,22 +478,16 @@ export function Notation({
 
     if (e.key === 'Backspace' || e.key === 'Delete') {
       if (selectedNoteIds.size > 0) {
-        // Multi-track deletion — global history
+        // Multi-track deletion — replace gaps with rests
         onUpdateSong(prev => {
-          const allNotes = prev.tracks.flatMap(t => t.notes);
-          const deletedMap = new Map<number, number>();
-          allNotes.forEach(n => {
-            if (!selectedNoteIds.has(n.id)) return;
-            deletedMap.set(n.start, Math.max(deletedMap.get(n.start) ?? 0, n.duration));
-          });
-          const sorted = [...deletedMap.entries()].sort(([a], [b]) => a - b).map(([start, dur]) => ({ start, dur }));
-          const shiftFor = (s: number) => sorted.reduce((acc, b) => acc + (b.start < s - 0.001 ? b.dur : 0), 0);
           let changed = false;
           const newTracks = prev.tracks.map(t => {
             const before = t.notes.length;
-            const remaining = t.notes.filter(n => !selectedNoteIds.has(n.id)).map(n => ({ ...n, start: n.start - shiftFor(n.start) }));
-            if (remaining.length !== before) changed = true;
-            return { ...t, notes: remaining };
+            const hasSelected = t.notes.some(n => selectedNoteIds.has(n.id));
+            if (!hasSelected) return t;
+            const newNotes = removeNotesWithRests(t.notes, selectedNoteIds);
+            if (newNotes.length !== before || newNotes.some(n => n.isRest && !t.notes.find(o => o.id === n.id))) changed = true;
+            return { ...t, notes: newNotes };
           });
           setSelectedNoteIds(new Set());
           return changed ? { ...prev, tracks: newTracks } : prev;
