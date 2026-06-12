@@ -8,7 +8,8 @@ export const FIRST_MEASURE_EXTRA = 110; // px reserved for clef + key sig + time
 export const BARLINE_PADDING = 10;     // px between left barline and first note in col>0 staves
 // VexFlow adds stave.getNoteStartX() + this value to tc.getX() when rendering notes
 const VEXFLOW_NOTE_OFFSET = 12; // Metrics.get('Stave.padding') = 12
-export const TRACK_HEIGHT = 290;
+export const TRACK_HEIGHT = 290;       // compact height used for PDF / page-view print
+export const SCREEN_TRACK_HEIGHT = 360; // editing height — fits the 330px interactive grid with clearance
 export const STAVE_Y_FIRST = 40;
 export const GRID_TOP_OFFSET = 25; // grid overlay starts this many px above stave Y
 export const GRID_SUBDIVISIONS = 4;
@@ -397,13 +398,14 @@ export function renderNotation(
   showGuitarTab = false,
   rowsPerPage = 0,
   interPageGap = 0,
+  trackHeightOverride?: number,
 ) {
   container.innerHTML = '';
   const VF = VexFlow;
   const fg = theme === 'light' ? '#000000' : '#F2F2F2';
 
   const width = availableWidth ?? Math.max(300, (container.parentElement?.clientWidth ?? 900) - 64);
-  const layout = calcLayout(song, width, showGuitarTab);
+  const layout = calcLayout(song, width, showGuitarTab, trackHeightOverride);
   const { measuresPerRow, totalMeasures, notesWidthPerMeasure, effectiveTrackHeight, beatsPerMeasure, rowHeight, trackYOffsets, numRows } = layout;
 
   const numPages = rowsPerPage > 0 ? Math.ceil(numRows / rowsPerPage) : 1;

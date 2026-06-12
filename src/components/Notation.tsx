@@ -6,7 +6,7 @@ import {
   rowBaseY,
   PIXELS_PER_BEAT, FIRST_MEASURE_EXTRA, STAVE_Y_FIRST,
   GRID_TOP_OFFSET, GRID_SUBDIVISIONS, CELL_WIDTH, CELL_HEIGHT,
-  TRACK_HEIGHT,
+  SCREEN_TRACK_HEIGHT,
   PAGE_INNER_WIDTH, PAGE_FULL_WIDTH, PAGE_FULL_HEIGHT,
   PAGE_MARGIN_TOP, PAGE_MARGIN_BOTTOM, PAGE_BETWEEN_GAP,
   ChordDiagramResult, collectUniqueChordsForTab, ChordForTab,
@@ -221,7 +221,10 @@ export function Notation({
   }, []);
 
   const effectiveWidth = pageView ? PAGE_INNER_WIDTH : containerWidth;
-  const layout = useMemo(() => calcLayout(song, effectiveWidth, showGuitarTab), [song, effectiveWidth, showGuitarTab]);
+  // Page view uses the compact TRACK_HEIGHT (more lines per printed page).
+  // Screen/edit mode uses SCREEN_TRACK_HEIGHT so the interactive pitch grid never overlaps the next row.
+  const trackHeight = pageView ? undefined : SCREEN_TRACK_HEIGHT;
+  const layout = useMemo(() => calcLayout(song, effectiveWidth, showGuitarTab, trackHeight), [song, effectiveWidth, showGuitarTab, trackHeight]);
   const { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgHeight, svgWidth, effectiveTrackHeight, rowHeight, trackYOffsets } = layout;
 
   const rowsPerPage = (pageView && rowHeight > 0)
@@ -232,10 +235,20 @@ export function Notation({
   const pgGap = (r: number) => rowBaseY(r, rowHeight, rowsPerPage, pageView ? interPageGap : 0) - r * rowHeight;
   const adjustedSvgHeight = svgHeight + (pageView && numPages > 1 ? (numPages - 1) * interPageGap : 0);
 
+  // RAF ref so rapid edits (held arrow key, dragging) coalesce into one VexFlow redraw per frame
+  const renderRafRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!containerRef.current) return;
-    renderNotation(containerRef.current, song, 'dark', effectiveWidth, showGuitarTab, rowsPerPage, pageView ? interPageGap : 0);
-  }, [song, effectiveWidth, showGuitarTab, rowsPerPage, pageView, interPageGap]);
+    const container = containerRef.current;
+    if (!container) return;
+    if (renderRafRef.current !== null) cancelAnimationFrame(renderRafRef.current);
+    renderRafRef.current = requestAnimationFrame(() => {
+      renderRafRef.current = null;
+      renderNotation(container, song, 'dark', effectiveWidth, showGuitarTab, rowsPerPage, pageView ? interPageGap : 0, trackHeight);
+    });
+    return () => {
+      if (renderRafRef.current !== null) { cancelAnimationFrame(renderRafRef.current); renderRafRef.current = null; }
+    };
+  }, [song, effectiveWidth, showGuitarTab, rowsPerPage, pageView, interPageGap, trackHeight]);
 
   const clientXToBeat = useCallback((clientX: number, rowIdx: number): number => {
     const container = outerRef.current;
