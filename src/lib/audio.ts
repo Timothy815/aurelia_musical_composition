@@ -522,7 +522,7 @@ class AudioEngine {
       while (true) {
         const end = Math.round((current.start + current.duration) * 1000) / 1000;
         const next = sorted.find(n =>
-          !skip.has(n.id) && n.pitch === note.pitch && !n.isRest && Math.abs(n.start - end) < 0.005
+          !skip.has(n.id) && n.tied === true && n.pitch === note.pitch && !n.isRest && Math.abs(n.start - end) < 0.005
         );
         if (!next) break;
         skip.add(next.id);
@@ -580,7 +580,7 @@ class AudioEngine {
         ? this.trackSynths.get(track.id)!
         : (this.sampler && this.sampler.loaded) ? this.sampler : this.fallbackSynth!;
 
-      const notes = expandNotesForRepeats(track.notes, repeats, song.timeSignature[0]);
+      const notes = this.mergeTiedNotes(expandNotesForRepeats(track.notes, repeats, song.timeSignature[0] * (4 / song.timeSignature[1])));
 
       notes.forEach(note => {
         if (note.isRest) return;

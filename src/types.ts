@@ -12,6 +12,7 @@ export interface NoteData {
   voice?: 1 | 2;
   dynamic?: DynamicMarking;
   articulation?: ArticulationMarking;
+  tied?: boolean; // true = this note is tied from the previous same-pitch note
 }
 
 export interface TrackData {

@@ -139,7 +139,7 @@ export interface NotationLayout {
 }
 
 export function calcLayout(song: SongData, availableWidth: number, showGuitarTab = false, trackHeightOverride?: number): NotationLayout {
-  const beatsPerMeasure = song.timeSignature[0];
+  const beatsPerMeasure = song.timeSignature[0] * (4 / song.timeSignature[1]);
   const notesWidthPerMeasure = beatsPerMeasure * PIXELS_PER_BEAT;
   const firstMeasureWidth = FIRST_MEASURE_EXTRA + notesWidthPerMeasure;
   const laterMeasureWidth = BARLINE_PADDING + notesWidthPerMeasure;
@@ -300,6 +300,38 @@ function buildTrackSegments(notes: NoteData[], beatsPerMeasure: number): Map<num
       }
       remaining = Math.round((remaining - availInMeasure) * 1000) / 1000;
     }
+  });
+
+  // Second pass: wire explicit user-placed ties (note.tied === true)
+  const allSegs: RenderSeg[] = [];
+  byMeasure.forEach(segs => allSegs.push(...segs));
+
+  const tiedNotes = [...notes].filter(n => n.tied && !n.isRest).sort((a, b) => a.start - b.start);
+  tiedNotes.forEach(noteB => {
+    const bStart = Math.round(noteB.start * 1000) / 1000;
+    const noteA = notes.find(n =>
+      !n.isRest &&
+      n.pitch === noteB.pitch &&
+      Math.abs(Math.round((n.start + n.duration) * 1000) / 1000 - bStart) < 0.005
+    );
+    if (!noteA) return;
+
+    const aSegs = allSegs
+      .filter(s => s.chainId.split('|').includes(noteA.id))
+      .sort((a, b) => a.start - b.start);
+    const bSegs = allSegs
+      .filter(s => s.chainId.split('|').includes(noteB.id))
+      .sort((a, b) => a.start - b.start);
+    if (!aSegs.length || !bSegs.length) return;
+
+    const lastASeg = aSegs[aSegs.length - 1];
+    const firstBSeg = bSegs[0];
+    lastASeg.tieToNext = true;
+    firstBSeg.tieFromPrev = true;
+
+    // Give B's segments the same chainId as A's last segment so tieState connects them
+    const aChainId = lastASeg.chainId;
+    bSegs.forEach(s => { s.chainId = aChainId; });
   });
 
   return byMeasure;

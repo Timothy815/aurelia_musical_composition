@@ -78,7 +78,7 @@ function fillRestsXML(from: number, to: number, divisions: number, out: string[]
 
 export function exportToMusicXML(song: SongData) {
   const DIVISIONS = 4;
-  const bpm = song.timeSignature[0];
+  const bpm = song.timeSignature[0] * (4 / song.timeSignature[1]);
   const out: string[] = [];
 
   out.push('<?xml version="1.0" encoding="UTF-8"?>');
@@ -133,9 +133,15 @@ export function exportToMusicXML(song: SongData) {
       }
 
       let cursor = mStart;
+      let lastDynamic = '';
       for (const grp of groups) {
         const gStart = grp[0].start;
         if (gStart > cursor + 0.02) fillRestsXML(cursor, gStart, DIVISIONS, out);
+        const dyn = grp.find(n => !n.isRest && n.dynamic)?.dynamic ?? '';
+        if (dyn && dyn !== lastDynamic) {
+          out.push(`      <direction placement="below"><direction-type><dynamics><${dyn}/></dynamics></direction-type></direction>`);
+          lastDynamic = dyn;
+        }
         grp.forEach((note, idx) => out.push(...noteLines(note, note.duration, DIVISIONS, idx > 0)));
         cursor = gStart + grp[0].duration;
       }
@@ -238,8 +244,10 @@ export function exportToMidi(song: SongData) {
     const program = GM_PROGRAMS[t.instrument] ?? 1;
     track.addEvent(new MidiWriter.ProgramChangeEvent({ instrument: program }));
 
-    // Convert track volume (0–1) to MIDI velocity (20–100)
-    const velocity = Math.round((t.volume ?? 1) * 80 + 20);
+    const DVEL: Record<string, number> = {
+      ppp: 8, pp: 18, p: 32, mp: 50, mf: 65, f: 80, ff: 92, fff: 100,
+    };
+    const trackVol = t.volume ?? 1;
 
     const notesByStart: Record<number, typeof t.notes> = {};
     t.notes.filter(n => !n.isRest).forEach(note => {
@@ -252,6 +260,9 @@ export function exportToMidi(song: SongData) {
     times.forEach(time => {
       const notes = notesByStart[time];
       const waitTicks = Math.round((time - currentTick) * TICKS_PER_BEAT);
+      // Use first note's dynamic for the chord; scale by track volume
+      const dynVel = DVEL[notes[0].dynamic ?? 'mf'] ?? 65;
+      const velocity = Math.max(1, Math.min(100, Math.round(dynVel * trackVol)));
       track.addEvent(new MidiWriter.NoteEvent({
         pitch: notes.map(n => n.pitch),
         duration: `T${Math.round(notes[0].duration * TICKS_PER_BEAT)}`,

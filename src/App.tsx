@@ -308,6 +308,31 @@ export default function App() {
     }
   }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSelectedNoteIds, selectedNoteIds, song, harmonyMode, lastChord, activeTrackIndex]);
 
+  // Wrappers that set the sidebar UI value AND apply to any currently selected notes
+  const handleSetDynamic = useCallback((d: DynamicMarking | null) => {
+    setSelectedDynamic(d);
+    if (selectedNoteIds.size > 0) {
+      song.tracks.forEach(t => {
+        if (!t.notes.some(n => selectedNoteIds.has(n.id))) return;
+        dispatch({ type: 'SET_TRACK_NOTES', trackId: t.id, notes: (prev: NoteData[]) =>
+          prev.map(n => selectedNoteIds.has(n.id) ? { ...n, dynamic: d ?? undefined } : n)
+        });
+      });
+    }
+  }, [selectedNoteIds, song.tracks, dispatch]);
+
+  const handleSetArticulation = useCallback((a: ArticulationMarking | null) => {
+    setSelectedArticulation(a);
+    if (selectedNoteIds.size > 0) {
+      song.tracks.forEach(t => {
+        if (!t.notes.some(n => selectedNoteIds.has(n.id))) return;
+        dispatch({ type: 'SET_TRACK_NOTES', trackId: t.id, notes: (prev: NoteData[]) =>
+          prev.map(n => selectedNoteIds.has(n.id) ? { ...n, articulation: a ?? undefined } : n)
+        });
+      });
+    }
+  }, [selectedNoteIds, song.tracks, dispatch]);
+
   const initMidi = useCallback(async () => {
     if (!('requestMIDIAccess' in navigator)) {
       alert('Web MIDI is not supported in this browser. Use Chrome or Edge.');
@@ -494,27 +519,73 @@ export default function App() {
         return;
       }
 
-      // Paste
+      // Cut
+      if (isMod && e.key === 'x') {
+        e.preventDefault();
+        if (selectedNoteIds.size === 0) return;
+        const items: { note: NoteData; trackId: string }[] = [];
+        song.tracks.forEach(t => t.notes.forEach(n => {
+          if (selectedNoteIds.has(n.id)) items.push({ note: n, trackId: t.id });
+        }));
+        if (items.length > 0) {
+          const minStart = Math.min(...items.map(i => i.note.start));
+          setClipboard({
+            notes: items.map(i => ({ ...i.note, start: i.note.start - minStart })),
+            trackIds: items.map(i => i.trackId)
+          });
+          const cutTrackIds = new Set(items.map(i => i.trackId));
+          cutTrackIds.forEach(trackId => {
+            dispatch({ type: 'SET_TRACK_NOTES', trackId, notes: (prev: NoteData[]) =>
+              prev.filter(n => !selectedNoteIds.has(n.id))
+            });
+          });
+          setSelectedNoteIds(new Set());
+        }
+        return;
+      }
+
+      // Paste — only consider the tracks that are in the clipboard for determining paste position
       if (isMod && e.key === 'v') {
         e.preventDefault();
         if (!clipboard) return;
+        const clipTrackIds = new Set(clipboard.trackIds);
         let pasteStart = 0;
-        song.tracks.forEach(t => t.notes.forEach(n => {
-          if (n.start + n.duration > pasteStart) pasteStart = n.start + n.duration;
-        }));
+        song.tracks
+          .filter(t => clipTrackIds.has(t.id))
+          .forEach(t => t.notes.forEach(n => {
+            if (n.start + n.duration > pasteStart) pasteStart = n.start + n.duration;
+          }));
         const pasted = clipboard.notes.map((n, i) => ({
           note: { ...n, id: generateId(), start: pasteStart + n.start },
           trackId: clipboard.trackIds[i]
         }));
-        const newTracks = song.tracks.map(t => ({
-          ...t,
-          notes: [
-            ...t.notes,
-            ...pasted.filter(p => p.trackId === t.id).map(p => p.note)
-          ]
-        }));
-        setSong({ ...song, tracks: newTracks });
+        const affectedTrackIds = [...clipTrackIds];
+        if (affectedTrackIds.length === 1) {
+          const trackId = affectedTrackIds[0];
+          dispatch({ type: 'SET_TRACK_NOTES', trackId, notes: (prev: NoteData[]) =>
+            [...prev, ...pasted.filter(p => p.trackId === trackId).map(p => p.note)]
+          });
+        } else {
+          const newTracks = song.tracks.map(t => ({
+            ...t,
+            notes: [...t.notes, ...pasted.filter(p => p.trackId === t.id).map(p => p.note)]
+          }));
+          setSong({ ...song, tracks: newTracks });
+        }
         setSelectedNoteIds(new Set(pasted.map(p => p.note.id)));
+        return;
+      }
+
+      // Tie toggle (Score Mode) — T key ties selected notes to the preceding same-pitch note
+      if (e.key === 't' && !isMod && !playMode && selectedNoteIds.size > 0) {
+        e.preventDefault();
+        song.tracks.forEach(t => {
+          if (!t.notes.some(n => selectedNoteIds.has(n.id))) return;
+          dispatch({ type: 'SET_TRACK_NOTES', trackId: t.id, notes: (prev: NoteData[]) => {
+            const currentlyTied = prev.filter(n => selectedNoteIds.has(n.id)).some(n => n.tied);
+            return prev.map(n => selectedNoteIds.has(n.id) ? { ...n, tied: !currentlyTied } : n);
+          }});
+        });
         return;
       }
 
@@ -537,7 +608,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleAppendToScore, selectedNoteIds, song, clipboard, setSong, setSelectedNoteIds, histState.trackHistories, activeTrackIndex, playMode, returnToStart]);
+  }, [handleAppendToScore, selectedNoteIds, song, clipboard, setSong, setSelectedNoteIds, histState.trackHistories, activeTrackIndex, playMode, returnToStart, dispatch]);
 
   const detectedChords = useMemo(() => {
     if (combinedNotes.size === 0) return [];
@@ -894,9 +965,9 @@ export default function App() {
           activeVoice={activeVoice}
           setActiveVoice={setActiveVoice}
           selectedDynamic={selectedDynamic}
-          setSelectedDynamic={setSelectedDynamic}
+          setSelectedDynamic={handleSetDynamic}
           selectedArticulation={selectedArticulation}
-          setSelectedArticulation={setSelectedArticulation}
+          setSelectedArticulation={handleSetArticulation}
           chordSelectMode={chordSelectMode}
           setChordSelectMode={setChordSelectMode}
           harmonyMode={harmonyMode}

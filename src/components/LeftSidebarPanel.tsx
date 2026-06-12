@@ -19,9 +19,9 @@ interface LeftSidebarPanelProps {
   activeVoice: 1 | 2;
   setActiveVoice: (v: 1 | 2) => void;
   selectedDynamic: DynamicMarking | null;
-  setSelectedDynamic: React.Dispatch<React.SetStateAction<DynamicMarking | null>>;
+  setSelectedDynamic: (value: DynamicMarking | null) => void;
   selectedArticulation: ArticulationMarking | null;
-  setSelectedArticulation: React.Dispatch<React.SetStateAction<ArticulationMarking | null>>;
+  setSelectedArticulation: (value: ArticulationMarking | null) => void;
   chordSelectMode: boolean;
   setChordSelectMode: React.Dispatch<React.SetStateAction<boolean>>;
   harmonyMode: boolean;
