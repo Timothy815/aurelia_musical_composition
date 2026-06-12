@@ -3,9 +3,12 @@ import {
   renderNotation,
   calcLayout,
   getMeasureNoteStartX,
+  rowBaseY,
   PIXELS_PER_BEAT, FIRST_MEASURE_EXTRA, STAVE_Y_FIRST,
   GRID_TOP_OFFSET, GRID_SUBDIVISIONS, CELL_WIDTH, CELL_HEIGHT,
   TRACK_HEIGHT,
+  PAGE_INNER_WIDTH, PAGE_FULL_WIDTH, PAGE_FULL_HEIGHT,
+  PAGE_MARGIN_TOP, PAGE_MARGIN_BOTTOM, PAGE_BETWEEN_GAP,
   ChordDiagramResult, collectUniqueChordsForTab, ChordForTab,
 } from '../lib/notation';
 import { SongData, NoteData, DynamicMarking, ArticulationMarking, InstrumentPreset } from '../types';
@@ -121,6 +124,7 @@ export function Notation({
   onSetTrackNotes,
   playheadBeat,
   jumpToMeasure,
+  pageView = false,
 }: {
   song: SongData;
   onUpdateSong: (s: SongData | ((s: SongData) => SongData)) => void;
@@ -146,6 +150,7 @@ export function Notation({
   onSetTrackNotes?: (trackId: string, notes: NoteData[] | ((prev: NoteData[]) => NoteData[])) => void;
   playheadBeat?: number;
   jumpToMeasure?: { measure: number; id: number };
+  pageView?: boolean;
 }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -162,12 +167,22 @@ export function Notation({
     return () => ro.disconnect();
   }, []);
 
-  const layout = useMemo(() => calcLayout(song, containerWidth, showGuitarTab), [song, containerWidth, showGuitarTab]);
+  const effectiveWidth = pageView ? PAGE_INNER_WIDTH : containerWidth;
+  const layout = useMemo(() => calcLayout(song, effectiveWidth, showGuitarTab), [song, effectiveWidth, showGuitarTab]);
+  const { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgHeight, svgWidth, effectiveTrackHeight, rowHeight, trackYOffsets } = layout;
+
+  const rowsPerPage = (pageView && rowHeight > 0)
+    ? Math.max(1, Math.floor((PAGE_FULL_HEIGHT - PAGE_MARGIN_TOP - PAGE_MARGIN_BOTTOM) / rowHeight))
+    : 0;
+  const numPages = rowsPerPage > 0 ? Math.ceil(numRows / rowsPerPage) : 0;
+  const interPageGap = PAGE_MARGIN_TOP + PAGE_MARGIN_BOTTOM + GRID_TOP_OFFSET + PAGE_BETWEEN_GAP;
+  const pgGap = (r: number) => rowBaseY(r, rowHeight, rowsPerPage, pageView ? interPageGap : 0) - r * rowHeight;
+  const adjustedSvgHeight = svgHeight + (pageView && numPages > 1 ? (numPages - 1) * interPageGap : 0);
 
   useEffect(() => {
     if (!containerRef.current) return;
-    renderNotation(containerRef.current, song, 'dark', containerWidth, showGuitarTab);
-  }, [song, containerWidth, showGuitarTab]);
+    renderNotation(containerRef.current, song, 'dark', effectiveWidth, showGuitarTab, rowsPerPage, pageView ? interPageGap : 0);
+  }, [song, effectiveWidth, showGuitarTab, rowsPerPage, pageView, interPageGap]);
 
   const handleGridClick = useCallback((tIndex: number, beat: number, pitch: string) => {
     const track = song.tracks[tIndex];
@@ -404,8 +419,6 @@ export function Notation({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  const { measuresPerRow, totalMeasures, numRows, beatsPerMeasure, notesWidthPerMeasure, svgHeight, svgWidth, effectiveTrackHeight, rowHeight, trackYOffsets } = layout;
-
   // Playhead auto-scroll: only fires when the active row changes, not every RAF frame
   const prevPlayheadRowRef = useRef(-1);
   const playheadRow = (playheadBeat !== undefined && playheadBeat >= 0 && measuresPerRow > 0)
@@ -419,17 +432,17 @@ export function Notation({
     }
     if (playheadRow === prevPlayheadRowRef.current) return;
     prevPlayheadRowRef.current = playheadRow;
-    const rowY = P8 + playheadRow * rowHeight + STAVE_Y_FIRST;
+    const rowY = P8 + playheadRow * rowHeight + pgGap(playheadRow) + STAVE_Y_FIRST;
     outerRef.current.scrollTo({ top: Math.max(0, rowY - 60), behavior: 'smooth' });
-  }, [playheadRow, rowHeight]);
+  }, [playheadRow, rowHeight, rowsPerPage, pageView]);
 
   useEffect(() => {
     if (!jumpToMeasure || !outerRef.current) return;
     const mIdx = jumpToMeasure.measure - 1;
     const rowIdx = measuresPerRow > 0 ? Math.floor(mIdx / measuresPerRow) : 0;
-    const y = P8 + rowIdx * rowHeight + STAVE_Y_FIRST;
+    const y = P8 + rowIdx * rowHeight + pgGap(rowIdx) + STAVE_Y_FIRST;
     outerRef.current.scrollTo({ top: Math.max(0, y - 60), behavior: 'smooth' });
-  }, [jumpToMeasure, measuresPerRow, rowHeight]);
+  }, [jumpToMeasure, measuresPerRow, rowHeight, rowsPerPage, pageView]);
 
   const uniqueChordsForTab = useMemo<ChordForTab[]>(() => {
     if (!showGuitarTab) return [];
@@ -453,10 +466,43 @@ export function Notation({
   }, [noteDrag, song]);
 
   return (
-    <div ref={outerRef} className="relative w-full h-full overflow-auto bg-[#050506] p-8 group">
-      <div style={{ minHeight: svgHeight + 64, minWidth: svgWidth }}>
+    <div ref={outerRef} className={cn("relative w-full h-full overflow-auto p-8 group", pageView ? "bg-[#111115]" : "bg-[#050506]")}>
+      <div style={{ minHeight: adjustedSvgHeight + 64, minWidth: pageView ? PAGE_FULL_WIDTH : svgWidth }}>
+
+        {/* Page card backgrounds (page view only) */}
+        {pageView && Array.from({ length: numPages }, (_, pageIdx) => {
+          const startRow = pageIdx * rowsPerPage;
+          const endRow = Math.min((pageIdx + 1) * rowsPerPage, numRows);
+          const rowsInPage = endRow - startRow;
+          const rawTop = P8 + rowBaseY(startRow, rowHeight, rowsPerPage, interPageGap) + STAVE_Y_FIRST - GRID_TOP_OFFSET - PAGE_MARGIN_TOP;
+          const clampedTop = Math.max(0, rawTop);
+          const pageHeight = rowsInPage * rowHeight + GRID_TOP_OFFSET + PAGE_MARGIN_TOP + PAGE_MARGIN_BOTTOM;
+          const clampedHeight = pageHeight - (clampedTop - rawTop);
+          return (
+            <div
+              key={`page-${pageIdx}`}
+              className="absolute"
+              style={{
+                left: 0,
+                top: clampedTop,
+                width: PAGE_FULL_WIDTH,
+                height: clampedHeight,
+                background: '#0C0C0F',
+                border: '1px solid #1E1E24',
+                boxShadow: '0 2px 16px rgba(0,0,0,0.55)',
+                zIndex: 0,
+                pointerEvents: 'none',
+              }}
+            >
+              <span style={{ position: 'absolute', bottom: 10, right: 14, fontSize: 9, color: '#2E2E36', fontFamily: 'monospace', userSelect: 'none' }}>
+                {pageIdx + 1}
+              </span>
+            </div>
+          );
+        })}
+
         {/* VexFlow SVG */}
-        <div ref={containerRef} className="absolute top-8 left-8 z-0 pointer-events-none" />
+        <div ref={containerRef} className="absolute top-8 left-8 z-[1] pointer-events-none" />
 
         {/* Loop region band */}
         {loopEnabled && typeof loopStart === 'number' && typeof loopEnd === 'number' &&
@@ -476,7 +522,7 @@ export function Notation({
 
             const x1 = beatToX(overlapStart);
             const x2 = beatToX(overlapEnd);
-            const top = P8 + rowIdx * rowHeight + STAVE_Y_FIRST - GRID_TOP_OFFSET;
+            const top = P8 + rowIdx * rowHeight + pgGap(rowIdx) + STAVE_Y_FIRST - GRID_TOP_OFFSET;
             const height = rowHeight;
 
             return (
@@ -505,7 +551,7 @@ export function Notation({
           if (rowIdx >= numRows) return null;
           const beatInMeasure = beatPos - mIndex * beatsPerMeasure;
           const x = P8 + getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT;
-          const y = P8 + rowIdx * rowHeight + STAVE_Y_FIRST - 14;
+          const y = P8 + rowIdx * rowHeight + pgGap(rowIdx) + STAVE_Y_FIRST - 14;
           return (
             <div
               key={`chord-${beatPos}`}
@@ -527,7 +573,7 @@ export function Notation({
           const beatInMeasure = playheadBeat - mIdx * beatsPerMeasure;
           const x = P8 + getMeasureNoteStartX(cIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT;
           const rowIdx = Math.floor(mIdx / measuresPerRow);
-          const top = P8 + rowIdx * rowHeight + STAVE_Y_FIRST - GRID_TOP_OFFSET;
+          const top = P8 + rowIdx * rowHeight + pgGap(rowIdx) + STAVE_Y_FIRST - GRID_TOP_OFFSET;
           return (
             <div
               className="absolute pointer-events-none z-30"
@@ -546,7 +592,7 @@ export function Notation({
                 const mStart = mIndex * beatsPerMeasure;
 
                 const sectionLeft = P8 + getMeasureNoteStartX(colIdx, notesWidthPerMeasure);
-                const sectionTop = P8 + rowIdx * rowHeight + trackYOffsets[tIndex] + STAVE_Y_FIRST - GRID_TOP_OFFSET;
+                const sectionTop = P8 + rowIdx * rowHeight + pgGap(rowIdx) + trackYOffsets[tIndex] + STAVE_Y_FIRST - GRID_TOP_OFFSET;
 
                 return (
                   <div

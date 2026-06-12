@@ -14,6 +14,15 @@ export const GRID_TOP_OFFSET = 25; // grid overlay starts this many px above sta
 export const GRID_SUBDIVISIONS = 4;
 export const CELL_WIDTH = PIXELS_PER_BEAT / GRID_SUBDIVISIONS; // 15
 export const CELL_HEIGHT = 10;
+
+// Page view constants (letter-size at 96 dpi)
+export const PAGE_MARGIN_X = 32;    // horizontal margin each side; equals P8 so pages start at x=0
+export const PAGE_INNER_WIDTH = 752; // content width passed to calcLayout (816 − 2×32)
+export const PAGE_FULL_WIDTH = PAGE_INNER_WIDTH + PAGE_MARGIN_X * 2; // 816 ≈ letter width
+export const PAGE_FULL_HEIGHT = Math.round(PAGE_FULL_WIDTH * 11 / 8.5); // 1056 = letter height
+export const PAGE_MARGIN_TOP = 40;
+export const PAGE_MARGIN_BOTTOM = 48;
+export const PAGE_BETWEEN_GAP = 24; // visual gap between page cards
 export const CHORD_SECTION_HEADER_H = 28;
 export const CHORD_DIAG_COL_W = 80;  // px per diagram column including gap
 export const CHORD_DIAG_ROW_H = 116; // px per diagram row: label (14) + diagram (88) + gap (14)
@@ -293,12 +302,20 @@ function renderTrackMeasure(
   }
 }
 
+// Returns the base Y offset for a row, accounting for inter-page gaps in page view.
+export function rowBaseY(rowIdx: number, rowHeight: number, rowsPerPage: number, interPageGap: number): number {
+  if (rowsPerPage <= 0 || interPageGap <= 0) return rowIdx * rowHeight;
+  return rowIdx * rowHeight + Math.floor(rowIdx / rowsPerPage) * interPageGap;
+}
+
 export function renderNotation(
   container: HTMLElement,
   song: SongData,
   theme: 'dark' | 'light' = 'dark',
   availableWidth?: number,
-  showGuitarTab = false
+  showGuitarTab = false,
+  rowsPerPage = 0,
+  interPageGap = 0,
 ) {
   container.innerHTML = '';
   const VF = VexFlow;
@@ -306,10 +323,14 @@ export function renderNotation(
 
   const width = availableWidth ?? Math.max(300, (container.parentElement?.clientWidth ?? 900) - 64);
   const layout = calcLayout(song, width, showGuitarTab);
-  const { measuresPerRow, totalMeasures, notesWidthPerMeasure, effectiveTrackHeight, beatsPerMeasure, rowHeight, trackYOffsets } = layout;
+  const { measuresPerRow, totalMeasures, notesWidthPerMeasure, effectiveTrackHeight, beatsPerMeasure, rowHeight, trackYOffsets, numRows } = layout;
+
+  const numPages = rowsPerPage > 0 ? Math.ceil(numRows / rowsPerPage) : 1;
+  const adjustedSvgHeight = layout.svgHeight + (numPages - 1) * interPageGap;
+  const rby = (r: number) => rowBaseY(r, rowHeight, rowsPerPage, interPageGap);
 
   const renderer = new VF.Renderer(container as HTMLDivElement, RendererBackends.SVG);
-  renderer.resize(layout.svgWidth, layout.svgHeight);
+  renderer.resize(layout.svgWidth, adjustedSvgHeight);
 
   const context = renderer.getContext();
   context.setFont('Arial', 10);
@@ -330,7 +351,7 @@ export function renderNotation(
       const staveWidth = colIdx === 0
         ? FIRST_MEASURE_EXTRA + notesWidthPerMeasure
         : BARLINE_PADDING + notesWidthPerMeasure;
-      const staveY = rowIdx * rowHeight + trackYOffsets[tIndex] + STAVE_Y_FIRST;
+      const staveY = rby(rowIdx) + trackYOffsets[tIndex] + STAVE_Y_FIRST;
 
       const stave = new VF.Stave(staveX, staveY, staveWidth);
 
@@ -408,7 +429,7 @@ export function renderNotation(
       const colIdx = mIdx % measuresPerRow;
       const beatInM = beatPos - mIdx * beatsPerMeasure;
       const noteX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInM * PIXELS_PER_BEAT;
-      const staveY = rowIdx * rowHeight + trackYOffsets[tIndex] + STAVE_Y_FIRST;
+      const staveY = rby(rowIdx) + trackYOffsets[tIndex] + STAVE_Y_FIRST;
       context.setFont('Times New Roman', 11, 'italic');
       context.setFillStyle(fg);
       try { (context as any).fillText(dyn, noteX, staveY + 58); } catch (_) {}
@@ -422,7 +443,7 @@ export function renderNotation(
       const rowIdx = Math.floor(mIdx / measuresPerRow);
       const colIdx = mIdx % measuresPerRow;
       const x = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInM * PIXELS_PER_BEAT;
-      const y = rowIdx * rowHeight + STAVE_Y_FIRST - 10;
+      const y = rby(rowIdx) + STAVE_Y_FIRST - 10;
       context.setFont('Arial', 9, 'bold');
       context.setFillStyle('#999999');
       try { (context as any).fillText(`♩=${Math.round(tc.bpm)}`, x, y); } catch (_) {}

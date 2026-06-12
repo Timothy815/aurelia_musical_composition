@@ -34,6 +34,7 @@ export default function App() {
   const [loopStart, setLoopStart] = useState(0);
   const [loopEnd, setLoopEnd] = useState(8);
   const [showGuitarTab, setShowGuitarTab] = useState(false);
+  const [pageView, setPageView] = useState(false);
   const [clipboard, setClipboard] = useState<{ notes: NoteData[]; trackIds: string[] } | null>(null);
   const [pianoReady, setPianoReady] = useState(false);
   const [selectedDynamic, setSelectedDynamic] = useState<DynamicMarking | null>(null);
@@ -756,6 +757,17 @@ export default function App() {
           <span className="uppercase tracking-wider">Tab</span>
         </button>
 
+        {/* Page View */}
+        <button
+          onClick={() => setPageView(v => !v)}
+          className={cn("flex items-center gap-1 px-2 py-1 text-[10px] rounded border transition-colors",
+            pageView ? "border-[#D4AF37] text-[#D4AF37] bg-[#D4AF37]/10" : "border-[#333] text-[#8E8E93] hover:text-white hover:border-[#555]"
+          )}
+          title="Toggle page view (letter-size pages)"
+        >
+          <span className="uppercase tracking-wider">Pages</span>
+        </button>
+
         <div className="w-px h-5 bg-[#1F1F21] mx-1" />
 
         {/* MIDI Recording */}
@@ -925,6 +937,7 @@ export default function App() {
             onSetTrackNotes={setTrackNotes}
             playheadBeat={playheadBeat}
             jumpToMeasure={jumpMeasure ?? undefined}
+            pageView={pageView}
           />
         </main>
 
