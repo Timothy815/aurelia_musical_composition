@@ -405,7 +405,11 @@ export function Notation({
 
   useEffect(() => {
     window.addEventListener('mouseup', handleGlobalMouseUp);
-    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('touchend', handleGlobalMouseUp as any);
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('touchend', handleGlobalMouseUp as any);
+    };
   }, [handleGlobalMouseUp]);
 
   useEffect(() => {
@@ -413,8 +417,15 @@ export function Notation({
     const handleMouseMove = (e: MouseEvent) => {
       setScrubBeat(clientXToBeat(e.clientX, scrubRowRef.current));
     };
+    const handleTouchMove = (e: TouchEvent) => {
+      setScrubBeat(clientXToBeat(e.touches[0].clientX, scrubRowRef.current));
+    };
     window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
+    window.addEventListener('touchmove', handleTouchMove);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('touchmove', handleTouchMove);
+    };
   }, [isScrubbing, clientXToBeat]);
 
   // Arrow keys + delete (copy/paste handled in App.tsx)
@@ -582,6 +593,17 @@ export function Notation({
     return collectUniqueChordsForTab(song);
   }, [showGuitarTab, song]);
 
+  // Compute beat + row index from a touch position relative to a section element
+  const getSectionTouchCell = useCallback((touch: Touch, sectionEl: HTMLElement, mStart: number) => {
+    const rect = sectionEl.getBoundingClientRect();
+    const x = Math.max(0, touch.clientX - rect.left);
+    const y = Math.max(0, touch.clientY - rect.top);
+    const numCells = beatsPerMeasure * GRID_SUBDIVISIONS;
+    const cIdx = Math.max(0, Math.min(numCells - 1, Math.floor(x / CELL_WIDTH)));
+    const rIdx = Math.max(0, Math.min(PITCHES.length - 1, Math.floor(y / CELL_HEIGHT)));
+    return { beat: mStart + cIdx / GRID_SUBDIVISIONS, rIdx };
+  }, [beatsPerMeasure]);
+
   // Compute note drag ghost positions for preview
   const dragGhostKeys = useMemo<Set<string>>(() => {
     if (!noteDrag) return new Set();
@@ -726,6 +748,12 @@ export function Notation({
                 setIsScrubbing(true);
                 setScrubBeat(displayBeat);
               } : undefined}
+              onTouchStart={canScrub ? e => {
+                e.preventDefault();
+                scrubRowRef.current = rowIdx;
+                setIsScrubbing(true);
+                setScrubBeat(displayBeat);
+              } : undefined}
             />
           );
         })()}
@@ -754,8 +782,45 @@ export function Notation({
                       outline: (!chordMode && tIndex === activeTrackIndex)
                         ? `1px solid ${song.tracks[tIndex]?.color ?? '#D4AF37'}40`
                         : undefined,
+                      touchAction: 'none',
                     }}
                     onMouseDown={() => { if (!chordMode) onSetActiveTrack?.(tIndex); }}
+                    onTouchStart={e => {
+                      if (chordMode) return;
+                      e.preventDefault();
+                      onSetActiveTrack?.(tIndex);
+                      const { beat, rIdx } = getSectionTouchCell(e.touches[0], e.currentTarget, mStart);
+                      const startNotes = track.notes.filter(n =>
+                        Math.abs(n.start - beat) < 0.01 && n.pitch === PITCHES[rIdx]
+                      );
+                      if (startNotes.length > 0) {
+                        const ids = startNotes.some(n => selectedNoteIds.has(n.id))
+                          ? Array.from(selectedNoteIds)
+                          : startNotes.map(n => n.id);
+                        if (!startNotes.some(n => selectedNoteIds.has(n.id))) {
+                          setSelectedNoteIds(new Set(startNotes.map(n => n.id)));
+                        }
+                        setNoteDrag({ tIndex, noteIds: ids, startBeat: beat, startRIndex: rIdx, endBeat: beat, endRIndex: rIdx });
+                      } else {
+                        setDragBox({ tIndex, startBeat: beat, startRIndex: rIdx, endBeat: beat, endRIndex: rIdx });
+                      }
+                    }}
+                    onTouchMove={e => {
+                      e.preventDefault();
+                      const { beat, rIdx } = getSectionTouchCell(e.touches[0], e.currentTarget, mStart);
+                      const nextBeat = beat + 1 / GRID_SUBDIVISIONS;
+                      if (noteResize && noteResize.tIndex === tIndex) {
+                        setNoteResize(prev => prev ? { ...prev, currentEndBeat: nextBeat } : null);
+                      } else if (noteDrag && noteDrag.tIndex === tIndex) {
+                        setNoteDrag(prev => prev ? { ...prev, endBeat: beat, endRIndex: rIdx } : null);
+                      } else if (dragBox && dragBox.tIndex === tIndex) {
+                        setDragBox(prev => prev ? { ...prev, endBeat: beat, endRIndex: rIdx } : null);
+                      }
+                    }}
+                    onTouchEnd={e => {
+                      e.preventDefault();
+                      handleGlobalMouseUp();
+                    }}
                   >
                     {PITCHES.map((pitch, rIdx) => (
                       <div key={pitch} className="flex" style={{ height: CELL_HEIGHT }}>
@@ -847,6 +912,18 @@ export function Notation({
                                 <div
                                   className="absolute right-0 top-0 bottom-0 w-[4px] cursor-col-resize z-20 bg-transparent hover:bg-[#D4AF37]/60"
                                   onMouseDown={e => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setNoteResize({
+                                      tIndex,
+                                      noteId: resizeNote.id,
+                                      noteStart: resizeNote.start,
+                                      originalDuration: resizeNote.duration,
+                                      currentEndBeat: nextBeat,
+                                    });
+                                    setSelectedNoteIds(new Set([resizeNote.id]));
+                                  }}
+                                  onTouchStart={e => {
                                     e.preventDefault();
                                     e.stopPropagation();
                                     setNoteResize({

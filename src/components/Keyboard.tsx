@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { audio } from '../lib/audio';
 import { cn } from '../lib/utils';
 
@@ -60,6 +60,26 @@ export function Keyboard({
 
   const callbacksRef = React.useRef({ onNoteOn, onNoteOff, latchMode, activeNotes, keyToPitch });
   callbacksRef.current = { onNoteOn, onNoteOff, latchMode, activeNotes, keyToPitch };
+
+  // Touch: tracks which pitch is currently active under the sliding finger
+  const touchPitchRef = useRef<string | null>(null);
+
+  const handleTouchNote = useCallback((touch: Touch) => {
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const pitch = (el as HTMLElement | null)?.dataset?.pitch
+      ?? (el?.closest('[data-pitch]') as HTMLElement | null)?.dataset?.pitch;
+    if (!pitch) return;
+    const { onNoteOn, onNoteOff, latchMode, activeNotes } = callbacksRef.current;
+    if (pitch === touchPitchRef.current) return;
+    if (touchPitchRef.current && !latchMode) onNoteOff(touchPitchRef.current);
+    touchPitchRef.current = pitch;
+    if (latchMode && activeNotes.has(pitch)) {
+      onNoteOff(pitch);
+      touchPitchRef.current = null;
+    } else {
+      onNoteOn(pitch);
+    }
+  }, []);
 
   // Handle QWERTY input
   useEffect(() => {
@@ -176,14 +196,27 @@ export function Keyboard({
         </div>
       </div>
       <div className="flex-1 flex overflow-x-auto w-full custom-scrollbar pb-2">
-        <div className="relative flex min-w-max h-full px-2 mt-2">
+        <div
+          className="relative flex min-w-max h-full px-2 mt-2"
+          style={{ touchAction: 'none' }}
+          onTouchStart={e => { e.preventDefault(); handleTouchNote(e.touches[0]); }}
+          onTouchMove={e => { e.preventDefault(); handleTouchNote(e.touches[0]); }}
+          onTouchEnd={e => {
+            e.preventDefault();
+            if (touchPitchRef.current && !callbacksRef.current.latchMode) {
+              callbacksRef.current.onNoteOff(touchPitchRef.current);
+              touchPitchRef.current = null;
+            }
+          }}
+        >
           {PIANO_KEYS.map((key, i) => {
             const isWhite = key.color === 'white';
             const isActive = activeNotes.has(key.pitch);
-            
+
             return (
               <div
                 key={key.pitch}
+                data-pitch={key.pitch}
                 onMouseDown={() => {
                     if (latchMode && isActive) {
                         onNoteOff(key.pitch);

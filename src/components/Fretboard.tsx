@@ -223,6 +223,20 @@ export function Fretboard({ activeNotes, onNoteOn, onNoteOff, latchMode }: Fretb
                         if (pname) onNoteOff(pname);
                       }
                     }}
+                    onTouchStart={e => {
+                      e.preventDefault();
+                      const pname = Note.fromMidi(str.tune);
+                      if (!pname) return;
+                      if (latchMode && activeMidis.has(str.tune)) onNoteOff(pname);
+                      else onNoteOn(pname);
+                    }}
+                    onTouchEnd={e => {
+                      e.preventDefault();
+                      if (!latchMode) {
+                        const pname = Note.fromMidi(str.tune);
+                        if (pname) onNoteOff(pname);
+                      }
+                    }}
                   >
                     {isMuted ? (
                       <span className="text-[#ff4444] text-base font-bold leading-none z-10 select-none">×</span>
@@ -288,6 +302,16 @@ export function Fretboard({ activeNotes, onNoteOn, onNoteOff, latchMode }: Fretb
                         }}
                         onMouseUp={() => { if (!latchMode && pitchName) onNoteOff(pitchName); }}
                         onMouseLeave={() => { if (!latchMode && pitchName) onNoteOff(pitchName); }}
+                        onTouchStart={e => {
+                          e.preventDefault();
+                          if (!pitchName) return;
+                          if (latchMode && activeMidis.has(midi)) onNoteOff(pitchName);
+                          else onNoteOn(pitchName);
+                        }}
+                        onTouchEnd={e => {
+                          e.preventDefault();
+                          if (!latchMode && pitchName) onNoteOff(pitchName);
+                        }}
                       >
                         {/* String line */}
                         <div
