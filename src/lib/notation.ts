@@ -349,7 +349,7 @@ function renderTrackMeasure(
         try {
           const prev = tieState.get(tieKey)!;
           const idxs = Array.from({ length: overridden.length }, (_, i) => i);
-          new VF.StaveTie({ first_note: prev, last_note: sn, first_indices: idxs, last_indices: idxs })
+          new VF.StaveTie({ firstNote: prev, lastNote: sn, firstIndexes: idxs, lastIndexes: idxs })
             .setContext(context).draw();
         } catch (_) {}
         tieState.delete(tieKey);
@@ -542,10 +542,51 @@ export function renderNotation(
   context.setStrokeStyle(fg);
 }
 
+// ── Chord diagram analysis (shared by SVG + canvas renderers) ────────────────
+export const DIAG_W = 66;
+export const DIAG_H = 88;
+export const DIAG_FRET_ROWS = 4;
+const DIAG_ORDER = [5, 4, 3, 2, 1, 0]; // diagPos → strIdx (low E first in diagram)
+
+export interface ChordAnalysis {
+  barre: { slot: number; startDiagPos: number; endDiagPos: number } | null;
+  dotFingers: Array<{ diagPos: number; slot: number; finger: number }>;
+}
+
+export function analyzeChordDiagram(frets: Array<number | null>, baseFret: number): ChordAnalysis {
+  const fretted: Array<{ diagPos: number; fret: number; slot: number }> = [];
+  DIAG_ORDER.forEach((strIdx, diagPos) => {
+    const f = frets[strIdx];
+    if (f != null && f > 0) {
+      const slot = f - baseFret;
+      if (slot >= 0 && slot < DIAG_FRET_ROWS) fretted.push({ diagPos, fret: f, slot });
+    }
+  });
+
+  if (fretted.length === 0) return { barre: null, dotFingers: [] };
+
+  const minFret = Math.min(...fretted.map(n => n.fret));
+  const barreNotes = fretted.filter(n => n.fret === minFret);
+  const barre = barreNotes.length >= 2
+    ? { slot: minFret - baseFret, startDiagPos: barreNotes[0].diagPos, endDiagPos: barreNotes[barreNotes.length - 1].diagPos }
+    : null;
+
+  const sorted = [...fretted].sort((a, b) => a.fret !== b.fret ? a.fret - b.fret : a.diagPos - b.diagPos);
+  let fingerNum = 1;
+  const fingerMap = new Map<number, number>();
+  if (barre) {
+    barreNotes.forEach(n => fingerMap.set(n.diagPos, 1));
+    fingerNum = 2;
+    sorted.filter(n => n.fret !== minFret).forEach(n => { fingerMap.set(n.diagPos, Math.min(4, fingerNum++)); });
+  } else {
+    sorted.forEach(n => { fingerMap.set(n.diagPos, Math.min(4, fingerNum++)); });
+  }
+
+  const dotFingers = fretted.map(n => ({ diagPos: n.diagPos, slot: n.slot, finger: fingerMap.get(n.diagPos) ?? 1 }));
+  return { barre, dotFingers };
+}
+
 // ── Canvas chord diagram drawing ─────────────────────────────────────────────
-const DIAG_W = 66;
-const DIAG_H = 88;
-const DIAG_FRET_ROWS = 4;
 
 function drawChordDiagramOnCanvas(
   ctx: CanvasRenderingContext2D,
@@ -563,9 +604,6 @@ function drawChordDiagramOnCanvas(
   const strXs = Array.from({ length: 6 }, (_, i) => originX + lPad + i * strSpacing);
   const fretSpacing = (DIAG_H * scale - tPad - 6 * scale) / DIAG_FRET_ROWS;
   const fretLineYs = Array.from({ length: DIAG_FRET_ROWS + 1 }, (_, i) => originY + tPad + i * fretSpacing);
-
-  // Diagram left-to-right: low E (index 5) → high e (index 0)
-  const diagOrder = [5, 4, 3, 2, 1, 0];
 
   ctx.save();
 
@@ -593,17 +631,58 @@ function drawChordDiagramOnCanvas(
 
   ctx.globalAlpha = 1;
 
-  // String indicators and finger dots
-  diagOrder.forEach((strIdx, diagPos) => {
+  const { barre, dotFingers } = analyzeChordDiagram(frets, baseFret);
+  const dotR = fretSpacing * 0.34;
+
+  // Barre bar (rounded rectangle spanning barre strings)
+  if (barre) {
+    const x1 = strXs[barre.startDiagPos];
+    const x2 = strXs[barre.endDiagPos];
+    const cy = fretLineYs[barre.slot] + fretSpacing / 2;
+    ctx.globalAlpha = 0.88;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    const r = dotR;
+    ctx.moveTo(x1 + r, cy - r);
+    ctx.arcTo(x2 + r, cy - r, x2 + r, cy + r, r);
+    ctx.arcTo(x2 + r, cy + r, x1 - r, cy + r, r);
+    ctx.arcTo(x1 - r, cy + r, x1 - r, cy - r, r);
+    ctx.arcTo(x1 - r, cy - r, x2 + r, cy - r, r);
+    ctx.closePath();
+    ctx.fill();
+    // Finger number "1" centered in bar
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${7 * scale}px Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('1', (x1 + x2) / 2, cy);
+  }
+
+  // Individual finger dots (non-barre notes)
+  dotFingers.filter(d => !(barre && d.slot === barre.slot)).forEach(({ diagPos, slot, finger }) => {
+    const sx = strXs[diagPos];
+    const cy = fretLineYs[slot] + fretSpacing / 2;
+    ctx.globalAlpha = 0.88;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(sx, cy, dotR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${7 * scale}px Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(finger), sx, cy);
+  });
+
+  // String open/mute indicators
+  DIAG_ORDER.forEach((strIdx, diagPos) => {
     const fret = frets[strIdx];
     const sx = strXs[diagPos];
-    const slot = fret != null && fret > 0 ? fret - baseFret : null;
-    const inRange = slot !== null && slot >= 0 && slot < DIAG_FRET_ROWS;
-
     ctx.font = `${10 * scale}px Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-
     if (fret === null) {
       ctx.globalAlpha = 0.45;
       ctx.fillStyle = '#000';
@@ -615,14 +694,6 @@ function drawChordDiagramOnCanvas(
       ctx.beginPath();
       ctx.arc(sx, originY + tPad - 7 * scale, 3 * scale, 0, Math.PI * 2);
       ctx.stroke();
-    }
-
-    if (inRange) {
-      ctx.globalAlpha = 0.88;
-      ctx.fillStyle = '#000';
-      ctx.beginPath();
-      ctx.arc(sx, fretLineYs[slot!] + fretSpacing / 2, fretSpacing * 0.34, 0, Math.PI * 2);
-      ctx.fill();
     }
   });
 
@@ -757,6 +828,17 @@ export function renderNotationToCanvas(
   context.setStrokeStyle('#000000');
 
   song.tracks.forEach((track, tIndex) => {
+    const ctNotes = track.grandStaff
+      ? track.notes.filter(n => n.isRest || noteToMidi(n.pitch) >= 60)
+      : track.notes;
+    const cbNotes = track.grandStaff
+      ? track.notes.filter(n => !n.isRest && noteToMidi(n.pitch) < 60)
+      : [];
+    const ctSegs = buildTrackSegments(ctNotes, beatsPerMeasure);
+    const cbSegs = buildTrackSegments(cbNotes, beatsPerMeasure);
+    const ctTies = new Map<string, any>();
+    const cbTies = new Map<string, any>();
+
     for (let mIndex = 0; mIndex < totalMeasures; mIndex++) {
       const rowIdx = Math.floor(mIndex / measuresPerRow);
       if (rowIdx < startRow || rowIdx >= endRow) continue;
@@ -817,47 +899,54 @@ export function renderNotationToCanvas(
       }
 
       const mStart = mIndex * beatsPerMeasure;
-      const mEnd = (mIndex + 1) * beatsPerMeasure;
       const noteStartX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) * scale;
+      const halfMeasure = beatsPerMeasure / 2;
 
-      // Helper: render a set of notes on a target stave in canvas mode
-      const renderMeasureOnCanvas = (notesList: NoteData[], targetStave: any, noteClef: string) => {
-        const notesInMeasure = notesList.filter(n =>
-          n.start >= mStart - 0.001 && n.start < mEnd - 0.001
-        );
-        const byBeat = new Map<number, NoteData[]>();
-        notesInMeasure.forEach(n => {
-          const k = Math.round(n.start * 100) / 100;
-          if (!byBeat.has(k)) byBeat.set(k, []);
-          byBeat.get(k)!.push(n);
-        });
-        const beamable: any[] = [];
-        [...byBeat.entries()].sort(([a], [b]) => a - b).forEach(([beat, chord]) => {
-          const beatInMeasure = beat - mStart;
-          const sn = buildStaveNote(VF, chord, '#000000', noteClef);
+      const renderMeasureOnCanvas = (segs: RenderSeg[], targetStave: any, noteClef: string, tieState: Map<string, any>) => {
+        const beamGroups = new Map<string, any[]>();
+        [...segs].sort((a, b) => a.start - b.start).forEach(seg => {
+          const beatInMeasure = seg.start - mStart;
+          const isRest = seg.notes[0]?.isRest ?? false;
+          const overridden = seg.notes.map(n => ({ ...n, duration: seg.duration }));
+          const sn = buildStaveNote(VF, overridden, '#000000', noteClef);
           const tc = new VF.TickContext();
           tc.addTickable(sn);
           const desiredX = noteStartX + beatInMeasure * PIXELS_PER_BEAT * scale;
           tc.preFormat().setX(desiredX - targetStave.getNoteStartX() - VEXFLOW_NOTE_OFFSET);
           sn.setStave(targetStave);
           sn.setContext(context).draw();
-          if (!chord[0]?.isRest && chord[0]?.duration <= 0.5) beamable.push(sn);
+
+          const tieKey = `${seg.chainId}|v1`;
+          if (seg.tieFromPrev && !isRest && tieState.has(tieKey)) {
+            try {
+              const prev = tieState.get(tieKey)!;
+              const idxs = Array.from({ length: overridden.length }, (_, i) => i);
+              new VF.StaveTie({ firstNote: prev, lastNote: sn, firstIndexes: idxs, lastIndexes: idxs })
+                .setContext(context).draw();
+            } catch (_) {}
+            tieState.delete(tieKey);
+          }
+          if (seg.tieToNext && !isRest) tieState.set(tieKey, sn);
+
+          if (!isRest && seg.duration <= 0.5) {
+            const g = `${Math.floor(beatInMeasure / halfMeasure)}`;
+            if (!beamGroups.has(g)) beamGroups.set(g, []);
+            beamGroups.get(g)!.push(sn);
+          }
         });
-        if (beamable.length >= 2) {
-          try {
-            const beams = VF.Beam.generateBeams(beamable);
-            beams.forEach((b: any) => b.setContext(context).draw());
-          } catch (_) {}
-        }
+        beamGroups.forEach(group => {
+          if (group.length >= 2) {
+            try {
+              const beams = VF.Beam.generateBeams(group);
+              beams.forEach((b: any) => b.setContext(context).draw());
+            } catch (_) {}
+          }
+        });
       };
 
-      const trebleNotes = track.grandStaff
-        ? track.notes.filter(n => n.isRest || noteToMidi(n.pitch) >= 60)
-        : track.notes;
-      renderMeasureOnCanvas(trebleNotes, stave, 'treble');
+      renderMeasureOnCanvas(ctSegs.get(mIndex) ?? [], stave, 'treble', ctTies);
       if (track.grandStaff && bassStave) {
-        const bassNotes = track.notes.filter(n => !n.isRest && noteToMidi(n.pitch) < 60);
-        renderMeasureOnCanvas(bassNotes, bassStave, 'bass');
+        renderMeasureOnCanvas(cbSegs.get(mIndex) ?? [], bassStave, 'bass', cbTies);
       }
     }
   });

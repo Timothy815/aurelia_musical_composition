@@ -10,6 +10,7 @@ import {
   PAGE_INNER_WIDTH, PAGE_FULL_WIDTH, PAGE_FULL_HEIGHT,
   PAGE_MARGIN_TOP, PAGE_MARGIN_BOTTOM, PAGE_BETWEEN_GAP,
   ChordDiagramResult, collectUniqueChordsForTab, ChordForTab,
+  DIAG_W, DIAG_H, DIAG_FRET_ROWS, analyzeChordDiagram,
 } from '../lib/notation';
 import { SongData, NoteData, DynamicMarking, ArticulationMarking, InstrumentPreset } from '../types';
 import { generateId, cn } from '../lib/utils';
@@ -18,10 +19,6 @@ const PITCHES = ['B5', 'A5', 'G5', 'F5', 'E5', 'D5', 'C5', 'B4', 'A4', 'G4', 'F4
 const P8 = 32; // container padding (p-8 = 2rem = 32px)
 
 // Dimensions for each chord diagram box
-const DIAG_W = 66;
-const DIAG_H = 88;
-const DIAG_FRET_ROWS = 4;
-
 function ChordDiagramSVG({ frets, baseFret, fg = '#F2F2F2' }: ChordDiagramResult & { fg?: string }) {
   const lPad = baseFret > 1 ? 15 : 5;
   const rPad = 4;
@@ -32,9 +29,9 @@ function ChordDiagramSVG({ frets, baseFret, fg = '#F2F2F2' }: ChordDiagramResult
   const strXs = Array.from({ length: 6 }, (_, i) => lPad + i * strSpacing);
   const fretSpacing = (DIAG_H - tPad - bPad) / DIAG_FRET_ROWS;
   const fretLineYs = Array.from({ length: DIAG_FRET_ROWS + 1 }, (_, i) => tPad + i * fretSpacing);
-
-  // Diagram left-to-right: low E (index 5) → high e (index 0)
   const diagOrder = [5, 4, 3, 2, 1, 0];
+  const dotR = fretSpacing * 0.34;
+  const { barre, dotFingers } = analyzeChordDiagram(frets, baseFret);
 
   return (
     <svg width={DIAG_W} height={DIAG_H} viewBox={`0 0 ${DIAG_W} ${DIAG_H}`}>
@@ -49,12 +46,38 @@ function ChordDiagramSVG({ frets, baseFret, fg = '#F2F2F2' }: ChordDiagramResult
         <line key={i} x1={x} y1={tPad} x2={x} y2={tPad + DIAG_FRET_ROWS * fretSpacing}
           stroke={fg} strokeWidth={0.8} strokeOpacity={0.5} />
       ))}
-      {/* String indicators (x/o) and finger dots */}
+      {/* Barre bar */}
+      {barre && (() => {
+        const x1 = strXs[barre.startDiagPos];
+        const x2 = strXs[barre.endDiagPos];
+        const cy = fretLineYs[barre.slot] + fretSpacing / 2;
+        return (
+          <g key="barre">
+            <rect x={x1 - dotR} y={cy - dotR} width={x2 - x1 + 2 * dotR} height={2 * dotR}
+              rx={dotR} fill={fg} fillOpacity={0.88} />
+            <text x={(x1 + x2) / 2} y={cy} textAnchor="middle" dominantBaseline="central"
+              fontSize={7} fontWeight="bold" fontFamily="Arial, sans-serif"
+              fill={baseFret > 1 ? '#222' : '#fff'}>1</text>
+          </g>
+        );
+      })()}
+      {/* Individual finger dots */}
+      {dotFingers.filter(d => !(barre && d.slot === barre.slot)).map(({ diagPos, slot, finger }) => {
+        const x = strXs[diagPos];
+        const cy = fretLineYs[slot] + fretSpacing / 2;
+        return (
+          <g key={diagPos}>
+            <circle cx={x} cy={cy} r={dotR} fill={fg} fillOpacity={0.88} />
+            <text x={x} y={cy} textAnchor="middle" dominantBaseline="central"
+              fontSize={7} fontWeight="bold" fontFamily="Arial, sans-serif"
+              fill={baseFret > 1 ? '#222' : '#fff'}>{finger}</text>
+          </g>
+        );
+      })}
+      {/* String open/mute indicators */}
       {diagOrder.map((strIdx, diagPos) => {
         const fret = frets[strIdx];
         const x = strXs[diagPos];
-        const slot = fret != null && fret > 0 ? fret - baseFret : null;
-        const inRange = slot !== null && slot >= 0 && slot < DIAG_FRET_ROWS;
         return (
           <g key={diagPos}>
             {fret === null && (
@@ -64,10 +87,6 @@ function ChordDiagramSVG({ frets, baseFret, fg = '#F2F2F2' }: ChordDiagramResult
             {fret === 0 && (
               <circle cx={x} cy={tPad - 7} r={3} fill="none"
                 stroke={fg} strokeWidth={1} strokeOpacity={0.75} />
-            )}
-            {inRange && (
-              <circle cx={x} cy={fretLineYs[slot!] + fretSpacing / 2}
-                r={fretSpacing * 0.34} fill={fg} fillOpacity={0.88} />
             )}
           </g>
         );
@@ -97,6 +116,14 @@ type NoteDragState = {
   startRIndex: number;
   endBeat: number;
   endRIndex: number;
+};
+
+type NoteResizeState = {
+  tIndex: number;
+  noteId: string;
+  noteStart: number;
+  originalDuration: number;
+  currentEndBeat: number;
 };
 
 export function Notation({
@@ -157,6 +184,7 @@ export function Notation({
   const [containerWidth, setContainerWidth] = useState(900);
   const [dragBox, setDragBox] = useState<DragBox | null>(null);
   const [noteDrag, setNoteDrag] = useState<NoteDragState | null>(null);
+  const [noteResize, setNoteResize] = useState<NoteResizeState | null>(null);
 
   useEffect(() => {
     if (!outerRef.current) return;
@@ -264,7 +292,26 @@ export function Notation({
     }));
   }, [onUpdateSong]);
 
+  const commitNoteResize = useCallback((resize: NoteResizeState) => {
+    const minDur = 1 / GRID_SUBDIVISIONS;
+    const rawDur = resize.currentEndBeat - resize.noteStart;
+    const snapped = Math.max(minDur, Math.round(rawDur * GRID_SUBDIVISIONS) / GRID_SUBDIVISIONS);
+    if (Math.abs(snapped - resize.originalDuration) < 0.001) return;
+    onUpdateSong(prev => ({
+      ...prev,
+      tracks: prev.tracks.map(t => ({
+        ...t,
+        notes: t.notes.map(n => n.id === resize.noteId ? { ...n, duration: snapped } : n)
+      }))
+    }));
+  }, [onUpdateSong]);
+
   const handleGlobalMouseUp = useCallback(() => {
+    if (noteResize) {
+      commitNoteResize(noteResize);
+      setNoteResize(null);
+      return;
+    }
     if (noteDrag) {
       commitNoteDrag(noteDrag);
       setNoteDrag(null);
@@ -279,7 +326,7 @@ export function Notation({
       }
       setDragBox(null);
     }
-  }, [dragBox, noteDrag, commitDragBox, commitNoteDrag, handleGridClick]);
+  }, [dragBox, noteDrag, noteResize, commitDragBox, commitNoteDrag, commitNoteResize, handleGridClick]);
 
   useEffect(() => {
     window.addEventListener('mouseup', handleGlobalMouseUp);
@@ -644,11 +691,18 @@ export function Notation({
                           const ghostKey = `${beat.toFixed(3)}-${rIdx}`;
                           const isNoteDragGhost = noteDrag && noteDrag.tIndex === tIndex && dragGhostKeys.has(ghostKey);
 
+                          const nextBeat = beat + 1 / GRID_SUBDIVISIONS;
+                          const isNoteEnd = isActive && !activeIsRest && !track.notes.some(n =>
+                            n.pitch === pitch && nextBeat >= n.start && nextBeat < n.start + n.duration - 0.01
+                          );
+                          const resizeNote = isNoteEnd ? spanNotes[0] : null;
+                          const isResizing = noteResize?.noteId === resizeNote?.id;
+
                           return (
                             <div
                               key={cIdx}
                               className={cn(
-                                "border-r border-b border-[#D4AF37]/5 cursor-pointer transition-colors",
+                                "relative border-r border-b border-[#D4AF37]/5 cursor-pointer transition-colors",
                                 !isActive && !isSelected && !isStaged ? "hover:bg-[#D4AF37]/20" : "",
                                 isActive && !isSelected && !activeIsRest ? "bg-[#D4AF37]/40" : "",
                                 isActive && !isSelected && activeIsRest ? "bg-[#8E8E93]/40" : "",
@@ -660,6 +714,7 @@ export function Notation({
                                 dbOverlap ? "bg-[#4D96FF]/25" : "",
                                 isNoteDragSource ? "opacity-40" : "",
                                 isNoteDragGhost && !isActive ? "bg-[#7EB7FF]/50 border-l-2 border-l-[#4D96FF]" : "",
+                                isResizing ? "bg-[#D4AF37]/70" : "",
                               )}
                               style={{ width: CELL_WIDTH, height: CELL_HEIGHT }}
                               onMouseDown={e => {
@@ -678,13 +733,33 @@ export function Notation({
                               }}
                               onMouseEnter={e => {
                                 if (e.buttons !== 1) return;
-                                if (noteDrag && noteDrag.tIndex === tIndex) {
+                                if (noteResize && noteResize.tIndex === tIndex) {
+                                  setNoteResize(prev => prev ? { ...prev, currentEndBeat: nextBeat } : null);
+                                } else if (noteDrag && noteDrag.tIndex === tIndex) {
                                   setNoteDrag(prev => prev ? { ...prev, endBeat: beat, endRIndex: rIdx } : null);
                                 } else if (dragBox && dragBox.tIndex === tIndex) {
                                   setDragBox(prev => prev ? { ...prev, endBeat: beat, endRIndex: rIdx } : null);
                                 }
                               }}
-                            />
+                            >
+                              {isNoteEnd && resizeNote && !chordMode && (
+                                <div
+                                  className="absolute right-0 top-0 bottom-0 w-[4px] cursor-col-resize z-20 bg-transparent hover:bg-[#D4AF37]/60"
+                                  onMouseDown={e => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setNoteResize({
+                                      tIndex,
+                                      noteId: resizeNote.id,
+                                      noteStart: resizeNote.start,
+                                      originalDuration: resizeNote.duration,
+                                      currentEndBeat: nextBeat,
+                                    });
+                                    setSelectedNoteIds(new Set([resizeNote.id]));
+                                  }}
+                                />
+                              )}
+                            </div>
                           );
                         })}
                       </div>

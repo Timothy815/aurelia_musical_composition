@@ -470,6 +470,29 @@ class AudioEngine {
 
   // ── Playback ──────────────────────────────────────────────────────────────
 
+  private mergeTiedNotes(notes: NoteData[]): NoteData[] {
+    const sorted = [...notes].sort((a, b) => a.start - b.start || a.pitch.localeCompare(b.pitch));
+    const merged: NoteData[] = [];
+    const skip = new Set<string>();
+    for (const note of sorted) {
+      if (skip.has(note.id)) continue;
+      let totalDur = note.duration;
+      let current = note;
+      while (true) {
+        const end = Math.round((current.start + current.duration) * 1000) / 1000;
+        const next = sorted.find(n =>
+          !skip.has(n.id) && n.pitch === note.pitch && !n.isRest && Math.abs(n.start - end) < 0.005
+        );
+        if (!next) break;
+        skip.add(next.id);
+        totalDur += next.duration;
+        current = next;
+      }
+      merged.push({ ...note, duration: totalDur });
+    }
+    return merged;
+  }
+
   scheduleSong(song: SongData, loopEnabled?: boolean, loopStart?: number, loopEnd?: number) {
     Tone.Transport.cancel(0);
     Tone.Transport.bpm.value = song.tempo;
@@ -516,7 +539,7 @@ class AudioEngine {
         ? this.trackSynths.get(track.id)!
         : (this.sampler && this.sampler.loaded) ? this.sampler : this.fallbackSynth!;
 
-      const notes = expandNotesForRepeats(track.notes, repeats, song.timeSignature[0]);
+      const notes = this.mergeTiedNotes(expandNotesForRepeats(track.notes, repeats, song.timeSignature[0]));
 
       notes.forEach(note => {
         if (note.isRest) return;
