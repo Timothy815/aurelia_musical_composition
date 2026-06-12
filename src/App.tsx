@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Chord } from '@tonaljs/tonal';
-import { Play, Square, Plus, RotateCcw, RotateCw, Repeat } from 'lucide-react';
+import { Play, Square, Plus, RotateCcw, RotateCw, Repeat, SkipBack } from 'lucide-react';
 import { SongData, NoteData, InstrumentPreset, DynamicMarking, ArticulationMarking, EffectsSettings, DEFAULT_EFFECTS } from './types';
 import { generateId, cn } from './lib/utils';
 import { audio } from './lib/audio';
@@ -175,6 +175,16 @@ export default function App() {
       audio.play(song, loopEnabled, loopStart, loopEnd, Math.max(0, seekBeat));
       setIsPlaying(true);
     }
+  };
+
+  const returnToStart = () => {
+    if (isPlaying) {
+      audio.stop();
+      setIsPlaying(false);
+      setPlayingNotes(new Set());
+    }
+    setSeekBeat(0);
+    setPlayheadBeat(0);
   };
 
   const toggleMetronome = async () => {
@@ -510,6 +520,12 @@ export default function App() {
         return;
       }
 
+      if (e.key === 'Home') {
+        e.preventDefault();
+        returnToStart();
+        return;
+      }
+
       if (e.key === 'Enter') {
         e.preventDefault();
         handleAppendToScore();
@@ -517,7 +533,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleAppendToScore, selectedNoteIds, song, clipboard, setSong, setSelectedNoteIds, histState.trackHistories, activeTrackIndex, playMode]);
+  }, [handleAppendToScore, selectedNoteIds, song, clipboard, setSong, setSelectedNoteIds, histState.trackHistories, activeTrackIndex, playMode, returnToStart]);
 
   const detectedChords = useMemo(() => {
     if (combinedNotes.size === 0) return [];
@@ -621,6 +637,13 @@ export default function App() {
 
           {/* Transport */}
           <button
+            onClick={returnToStart}
+            title="Return to start (Home)"
+            className="flex items-center justify-center w-7 h-7 rounded text-[#8E8E93] hover:text-white hover:bg-[#222] transition-colors"
+          >
+            <SkipBack className="w-3.5 h-3.5" />
+          </button>
+          <button
             onClick={togglePlay}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 text-[10px] uppercase tracking-wider font-bold rounded transition-colors",
@@ -708,7 +731,13 @@ export default function App() {
               onKeyDown={e => {
                 if (e.key !== 'Enter') return;
                 const m = parseInt((e.target as HTMLInputElement).value);
-                if (!isNaN(m) && m >= 1) { jumpMeasureIdRef.current++; setJumpMeasure({ measure: m, id: jumpMeasureIdRef.current }); }
+                if (!isNaN(m) && m >= 1) {
+                  jumpMeasureIdRef.current++;
+                  setJumpMeasure({ measure: m, id: jumpMeasureIdRef.current });
+                  const beat = (m - 1) * song.timeSignature[0];
+                  setSeekBeat(beat);
+                  setPlayheadBeat(beat);
+                }
                 (e.target as HTMLInputElement).value = '';
                 (e.target as HTMLInputElement).blur();
               }}
