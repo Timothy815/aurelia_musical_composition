@@ -1,5 +1,6 @@
 import * as Tone from 'tone';
 import { SongData, NoteData, InstrumentPreset, EffectsSettings, TempoChange, RepeatMarker, HairpinData, VoltaData } from '../types';
+import { transposeNote } from './constants';
 
 const DYNAMIC_VELOCITY: Record<string, number> = {
   ppp: 0.08, pp: 0.18, p: 0.32, mp: 0.5, mf: 0.65, f: 0.8, ff: 0.92, fff: 1.0,
@@ -699,9 +700,16 @@ class AudioEngine {
           }, graceStart);
         }
 
+        const ottava = (song.ottava ?? []).find(
+          o => note.start >= o.startBeat && note.start < o.endBeat
+        );
+        const playedPitch = ottava
+          ? transposeNote(note.pitch, ottava.type === '8va' ? 12 : -12)
+          : note.pitch;
+
         Tone.Transport.schedule((time) => {
           try {
-            instrument.triggerAttackRelease(note.pitch, playDuration, time, velocity);
+            instrument.triggerAttackRelease(playedPitch, playDuration, time, velocity);
           } catch (_) {}
           Tone.Draw.schedule(() => { this.onNotePlay?.(note.pitch); }, time);
           Tone.Draw.schedule(() => { this.onNoteStop?.(note.pitch); }, time + durationSecs);
