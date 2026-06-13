@@ -35,7 +35,14 @@ function beatsToType(beats: number): { type: string; dots: number } {
   return { type: best[1], dots: 0 };
 }
 
-function noteLines(note: NoteData | null, beats: number, divisions: number, isChord: boolean): string[] {
+function noteLines(
+  note: NoteData | null,
+  beats: number,
+  divisions: number,
+  isChord: boolean,
+  slurStart?: boolean,
+  slurStop?: boolean,
+): string[] {
   const dur = Math.max(1, Math.round(beats * divisions));
   const { type, dots } = beatsToType(beats);
   const out: string[] = [];
@@ -56,12 +63,21 @@ function noteLines(note: NoteData | null, beats: number, divisions: number, isCh
   out.push(`        <type>${type}</type>`);
   for (let i = 0; i < dots; i++) out.push('        <dot/>');
   out.push('        <staff>1</staff>');
+
+  // Notations block: articulations + slurs
+  const notationParts: string[] = [];
   if (note?.articulation) {
     const tag = note.articulation === 'staccato' ? '<staccato/>'
       : note.articulation === 'accent' ? '<accent/>'
       : '<tenuto/>';
-    out.push('        <notations><articulations>' + tag + '</articulations></notations>');
+    notationParts.push('<articulations>' + tag + '</articulations>');
   }
+  if (slurStart) notationParts.push('<slur type="start" number="1"/>');
+  if (slurStop)  notationParts.push('<slur type="stop" number="1"/>');
+  if (notationParts.length > 0) {
+    out.push('        <notations>' + notationParts.join('') + '</notations>');
+  }
+
   if (note?.lyric && !note.isRest) {
     const text = note.lyric.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const syllabic = text.endsWith('-') ? 'begin' : 'single';
@@ -103,6 +119,11 @@ export function exportToMusicXML(song: SongData) {
   );
   out.push('  </part-list>');
 
+  const rehearsalMarks = song.rehearsalMarks ?? [];
+  const ottavaList     = song.ottava ?? [];
+  const pedalMarks     = song.pedalMarks ?? [];
+  const slurs          = song.slurs ?? [];
+
   song.tracks.forEach((track, tIdx) => {
     out.push(`  <part id="P${tIdx + 1}">`);
     const maxBeat = track.notes.length > 0
@@ -112,7 +133,8 @@ export function exportToMusicXML(song: SongData) {
     for (let m = 0; m < numMeasures; m++) {
       const mStart = m * bpm;
       const mEnd = mStart + bpm;
-      out.push(`    <measure number="${m + 1}">`);
+      const measureNumber = m + 1;
+      out.push(`    <measure number="${measureNumber}">`);
       if (m === 0) {
         out.push('      <attributes>');
         out.push(`        <divisions>${DIVISIONS}</divisions>`);
@@ -121,6 +143,15 @@ export function exportToMusicXML(song: SongData) {
         out.push('        <clef><sign>G</sign><line>2</line></clef>');
         out.push('      </attributes>');
         out.push(`      <direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${song.tempo}</per-minute></metronome></direction-type><sound tempo="${song.tempo}"/></direction>`);
+      }
+
+      // Rehearsal marks — only emit in first part (tIdx === 0)
+      if (tIdx === 0) {
+        rehearsalMarks
+          .filter(rm => rm.measure === measureNumber)
+          .forEach(rm => {
+            out.push(`      <direction placement="above"><direction-type><rehearsal enclosure="square">${xmlEsc(rm.text)}</rehearsal></direction-type></direction>`);
+          });
       }
 
       const mNotes = track.notes
@@ -148,7 +179,46 @@ export function exportToMusicXML(song: SongData) {
           out.push(`      <direction placement="below"><direction-type><dynamics><${dyn}/></dynamics></direction-type></direction>`);
           lastDynamic = dyn;
         }
-        grp.forEach((note, idx) => out.push(...noteLines(note, note.duration, DIVISIONS, idx > 0)));
+
+        // Ottava directions — only emit in first part (tIdx === 0)
+        if (tIdx === 0) {
+          ottavaList
+            .filter(o => Math.abs(o.startBeat - gStart) < 0.02)
+            .forEach(o => {
+              const shiftType = o.type === '8va' ? 'up' : 'down';
+              out.push(`      <direction placement="above"><direction-type><octave-shift type="${shiftType}" size="8"/></direction-type></direction>`);
+            });
+          ottavaList
+            .filter(o => Math.abs(o.endBeat - gStart) < 0.02)
+            .forEach(() => {
+              out.push('      <direction placement="above"><direction-type><octave-shift type="stop" size="8"/></direction-type></direction>');
+            });
+        }
+
+        // Pedal marks — only emit in first part (tIdx === 0)
+        if (tIdx === 0) {
+          pedalMarks
+            .filter(p => Math.abs(p.startBeat - gStart) < 0.02)
+            .forEach(() => {
+              out.push('      <direction placement="below"><direction-type><pedal type="start" line="yes"/></direction-type></direction>');
+            });
+          pedalMarks
+            .filter(p => Math.abs(p.endBeat - gStart) < 0.02)
+            .forEach(() => {
+              out.push('      <direction placement="below"><direction-type><pedal type="stop" line="yes"/></direction-type></direction>');
+            });
+        }
+
+        // Determine slur start/stop for this track at this beat
+        const trackSlurs = slurs.filter(s => s.trackIndex === tIdx);
+        const slurStart = trackSlurs.some(s => Math.abs(s.startBeat - gStart) < 0.02);
+        const slurStop  = trackSlurs.some(s => Math.abs(s.endBeat - gStart) < 0.02);
+
+        grp.forEach((note, idx) => out.push(...noteLines(
+          note, note.duration, DIVISIONS, idx > 0,
+          idx === 0 && slurStart,
+          idx === 0 && slurStop,
+        )));
         cursor = gStart + grp[0].duration;
       }
       if (cursor < mEnd - 0.02) fillRestsXML(cursor, mEnd, DIVISIONS, out);
