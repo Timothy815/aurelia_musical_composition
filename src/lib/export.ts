@@ -1,6 +1,7 @@
 import MidiWriter from 'midi-writer-js';
+import { Midi } from '@tonejs/midi';
 import { unzipSync, strFromU8 } from 'fflate';
-import { SongData, NoteData, TrackData, DynamicMarking } from '../types';
+import { SongData, NoteData, TrackData, DynamicMarking, InstrumentPreset } from '../types';
 import { renderNotationToCanvas, calcLayout, renderChordSectionToCanvas } from './notation';
 
 // ── MusicXML helpers ───────────────────────────────────────────────────────
@@ -260,18 +261,113 @@ export function saveFile(song: SongData) {
   URL.revokeObjectURL(url);
 }
 
+export function importMidi(buffer: ArrayBuffer): SongData {
+  const midi = new Midi(buffer);
+
+  // Tempo: use first tempo event, fall back to 120
+  const tempo = midi.header.tempos.length > 0
+    ? Math.round(midi.header.tempos[0].bpm)
+    : 120;
+
+  // Time signature: use first event, fall back to 4/4
+  const timeSig = midi.header.timeSignatures.length > 0
+    ? [midi.header.timeSignatures[0].timeSignature[0], midi.header.timeSignatures[0].timeSignature[1]] as number[]
+    : [4, 4];
+
+  // MIDI note number → pitch string (e.g. 60 → "C4")
+  const CHROMATIC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const midiToPitch = (n: number): string =>
+    `${CHROMATIC[n % 12]}${Math.floor(n / 12) - 1}`;
+
+  // Standard durations in beats (quarter note = 1 beat) — snap imported durations to nearest
+  const STD_DURS = [4, 3, 2, 1.5, 1, 0.75, 0.5, 0.375, 0.25, 0.1875, 0.125, 0.0625];
+  const snapDuration = (beats: number): number => {
+    if (beats <= 0) return 0.25;
+    return STD_DURS.reduce((best, d) => Math.abs(d - beats) < Math.abs(best - beats) ? d : best);
+  };
+
+  // Convert ticks → beats using ppq
+  const ppq = midi.header.ppq;
+  const ticksToBeats = (ticks: number): number => ticks / ppq;
+
+  const tracks: TrackData[] = midi.tracks
+    .filter(t => t.notes.length > 0)
+    .map((t, i) => {
+      const notes: NoteData[] = t.notes.map((n, j) => {
+        const startBeats = Math.round(ticksToBeats(n.ticks) * 1000) / 1000;
+        const durBeats = snapDuration(ticksToBeats(n.durationTicks));
+        const velocity = n.velocity; // 0–1
+        // Map velocity to dynamic marking
+        const dynamic: DynamicMarking =
+          velocity >= 0.9  ? 'fff' :
+          velocity >= 0.75 ? 'ff' :
+          velocity >= 0.62 ? 'f' :
+          velocity >= 0.5  ? 'mf' :
+          velocity >= 0.37 ? 'mp' :
+          velocity >= 0.25 ? 'p' :
+          velocity >= 0.12 ? 'pp' : 'ppp';
+
+        return {
+          id: `midi-${i}-${j}`,
+          pitch: midiToPitch(n.midi),
+          start: startBeats,
+          duration: durBeats,
+          dynamic,
+        };
+      });
+
+      // Instrument name: prefer track name, fall back to "Track N"
+      const name = t.name?.trim() || `Track ${i + 1}`;
+      // Instrument preset: guess from GM program number if available
+      const program = (t.instrument as any)?.number ?? 0;
+      let instrument: InstrumentPreset = 'piano';
+      if (program >= 24 && program <= 31) instrument = 'guitar';
+      else if (program >= 32 && program <= 39) instrument = 'bass';
+      else if (program >= 40 && program <= 47) instrument = 'strings';
+      else if (program >= 56 && program <= 71) instrument = 'brass';
+      else if (program >= 72 && program <= 79) instrument = 'flute';
+      else if (program >= 16 && program <= 23) instrument = 'organ';
+      else if (program >= 80 && program <= 95) instrument = 'synth';
+
+      return {
+        id: `midi-track-${i}`,
+        name,
+        instrument,
+        notes,
+      };
+    });
+
+  return {
+    title: '',
+    composer: '',
+    tempo,
+    timeSignature: timeSig,
+    tracks: tracks.length > 0 ? tracks : [{ id: 'midi-track-0', name: 'Track 1', instrument: 'piano', notes: [] }],
+  };
+}
+
 export function loadFile(): Promise<SongData> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.aurelia,.json,.musicxml,.mxl';
+    input.accept = '.aurelia,.json,.musicxml,.mxl,.mid,.midi';
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) return reject(new Error('No file selected'));
       const fileName = file.name.toLowerCase();
       const reader = new FileReader();
 
-      if (fileName.endsWith('.mxl')) {
+      if (fileName.endsWith('.mid') || fileName.endsWith('.midi')) {
+        reader.onload = () => {
+          try {
+            resolve(importMidi(reader.result as ArrayBuffer));
+          } catch (e) {
+            reject(new Error('Failed to import MIDI: ' + (e as Error).message));
+          }
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsArrayBuffer(file);
+      } else if (fileName.endsWith('.mxl')) {
         // .mxl is a ZIP archive — must read as binary
         reader.onload = () => {
           try {
