@@ -1,5 +1,5 @@
 import MidiWriter from 'midi-writer-js';
-import { SongData, NoteData } from '../types';
+import { SongData, NoteData, TrackData, DynamicMarking } from '../types';
 import { renderNotationToCanvas, calcLayout, renderChordSectionToCanvas } from './notation';
 
 // ── MusicXML helpers ───────────────────────────────────────────────────────
@@ -263,17 +263,23 @@ export function loadFile(): Promise<SongData> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.aurelia,.json';
+    input.accept = '.aurelia,.json,.musicxml,.mxl';
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) return reject(new Error('No file selected'));
+      const fileName = file.name.toLowerCase();
       const reader = new FileReader();
       reader.onload = () => {
         try {
-          const data = JSON.parse(reader.result as string) as SongData;
-          resolve(data);
-        } catch {
-          reject(new Error('Invalid file format'));
+          if (fileName.endsWith('.musicxml') || fileName.endsWith('.mxl')) {
+            const imported = importMusicXML(reader.result as string);
+            resolve(imported);
+          } else {
+            const data = JSON.parse(reader.result as string) as SongData;
+            resolve(data);
+          }
+        } catch (e) {
+          reject(new Error('Invalid file format: ' + (e as Error).message));
         }
       };
       reader.onerror = () => reject(new Error('Failed to read file'));
@@ -454,4 +460,155 @@ export function exportToPdf(song: SongData, showGuitarTab = false) {
 
   printWindow.document.close();
   printWindow.focus();
+}
+
+export function importMusicXML(xmlString: string): SongData {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlString, 'application/xml');
+
+  const parseError = doc.querySelector('parsererror');
+  if (parseError) throw new Error('Invalid MusicXML: ' + parseError.textContent);
+
+  // Title / Composer
+  const title = doc.querySelector('movement-title, work-title')?.textContent?.trim() ?? 'Imported Score';
+  const composer = doc.querySelector('creator[type="composer"]')?.textContent?.trim() ?? '';
+
+  // Time signature — read from first measure's attributes
+  let timeSig: number[] = [4, 4];
+  const timeEl = doc.querySelector('time');
+  if (timeEl) {
+    const beats = parseInt(timeEl.querySelector('beats')?.textContent ?? '4');
+    const beatType = parseInt(timeEl.querySelector('beat-type')?.textContent ?? '4');
+    timeSig = [beats, beatType];
+  }
+
+  // Key signature
+  let keySignature = 'C';
+  const keyEl = doc.querySelector('key');
+  if (keyEl) {
+    const fifths = parseInt(keyEl.querySelector('fifths')?.textContent ?? '0');
+    const KEY_BY_FIFTHS = ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'Db', 'Ab', 'Eb', 'Bb', 'F'];
+    keySignature = KEY_BY_FIFTHS[((fifths % 12) + 12) % 12];
+  }
+
+  // Tempo — look for <sound tempo="..."> or <metronome>
+  let tempo = 120;
+  const soundTempo = doc.querySelector('sound[tempo]');
+  if (soundTempo) tempo = parseFloat(soundTempo.getAttribute('tempo') ?? '120');
+
+  // Parse divisions (MusicXML uses divisions per quarter note for durations)
+  let divisions = 1;
+  const divEl = doc.querySelector('divisions');
+  if (divEl) divisions = parseInt(divEl.textContent ?? '1');
+
+  // Parse notes per part
+  const parts = Array.from(doc.querySelectorAll('part'));
+  const tracks: TrackData[] = [];
+
+  parts.forEach((part, partIdx) => {
+    const partId = part.getAttribute('id') ?? `P${partIdx + 1}`;
+    // Get part name from part-list
+    const partName = doc.querySelector(`score-part[id="${partId}"] part-name`)?.textContent?.trim() ?? `Track ${partIdx + 1}`;
+
+    const notes: NoteData[] = [];
+    let currentBeat = 0;
+    let currentDivisions = divisions;
+    let currentTimeSig = [...timeSig];
+
+    const measures = Array.from(part.querySelectorAll('measure'));
+    measures.forEach(measure => {
+      // Update divisions if redefined
+      const newDiv = measure.querySelector('attributes > divisions');
+      if (newDiv) currentDivisions = parseInt(newDiv.textContent ?? String(currentDivisions));
+
+      // Update time sig if redefined
+      const newTime = measure.querySelector('attributes > time');
+      if (newTime) {
+        const b = parseInt(newTime.querySelector('beats')?.textContent ?? String(currentTimeSig[0]));
+        const bt = parseInt(newTime.querySelector('beat-type')?.textContent ?? String(currentTimeSig[1]));
+        currentTimeSig = [b, bt];
+      }
+
+      const beatsPerMeasure = currentTimeSig[0] * (4 / currentTimeSig[1]);
+      const measureStartBeat = currentBeat;
+      let measureOffset = 0; // in divisions
+
+      // Handle backup/forward/note elements
+      Array.from(measure.children).forEach(el => {
+        if (el.tagName === 'note') {
+          const isChord = !!el.querySelector('chord');
+          if (isChord) {
+            // Chord: back up duration of previous note
+            const prevDur = notes.length > 0 ? notes[notes.length - 1].duration : 0;
+            measureOffset -= Math.round(prevDur * currentDivisions);
+          }
+          const isRest = !!el.querySelector('rest');
+          const dur = parseInt(el.querySelector('duration')?.textContent ?? '1');
+          const durationBeats = dur / currentDivisions;
+
+          let pitch = 'C4';
+          if (!isRest) {
+            const step = el.querySelector('pitch > step')?.textContent ?? 'C';
+            const alter = parseInt(el.querySelector('pitch > alter')?.textContent ?? '0');
+            const octave = el.querySelector('pitch > octave')?.textContent ?? '4';
+            const accidental = alter === 1 ? '#' : alter === -1 ? 'b' : '';
+            pitch = `${step}${accidental}${octave}`;
+          }
+
+          const voiceNum = parseInt(el.querySelector('voice')?.textContent ?? '1');
+          const voice: 1 | 2 = voiceNum === 2 ? 2 : 1;
+
+          // Dynamic
+          let dynamic: DynamicMarking | undefined;
+          const dynEl = el.querySelector('dynamics');
+          if (dynEl && dynEl.children.length > 0) {
+            dynamic = dynEl.children[0].tagName as DynamicMarking;
+          }
+
+          // Tied
+          const tieEl = el.querySelector('tie[type="start"]');
+          const tied = !!tieEl || undefined;
+
+          const noteBeat = measureStartBeat + measureOffset / currentDivisions;
+
+          notes.push({
+            id: `imp-${partIdx}-${notes.length}`,
+            pitch,
+            start: Math.round(noteBeat * 1000) / 1000,
+            duration: Math.round(durationBeats * 1000) / 1000,
+            isRest: isRest || undefined,
+            voice,
+            dynamic,
+            tied,
+          });
+
+          if (!isChord) measureOffset += dur;
+        } else if (el.tagName === 'backup') {
+          const dur = parseInt(el.querySelector('duration')?.textContent ?? '0');
+          measureOffset -= dur;
+        } else if (el.tagName === 'forward') {
+          const dur = parseInt(el.querySelector('duration')?.textContent ?? '0');
+          measureOffset += dur;
+        }
+      });
+
+      currentBeat = measureStartBeat + beatsPerMeasure;
+    });
+
+    tracks.push({
+      id: `imp-track-${partIdx}`,
+      name: partName,
+      instrument: 'piano',
+      notes,
+    });
+  });
+
+  return {
+    title,
+    composer: composer || undefined,
+    tempo,
+    timeSignature: timeSig,
+    keySignature,
+    tracks,
+  };
 }
