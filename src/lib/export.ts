@@ -1,4 +1,5 @@
 import MidiWriter from 'midi-writer-js';
+import { unzipSync, strFromU8 } from 'fflate';
 import { SongData, NoteData, TrackData, DynamicMarking } from '../types';
 import { renderNotationToCanvas, calcLayout, renderChordSectionToCanvas } from './notation';
 
@@ -269,21 +270,55 @@ export function loadFile(): Promise<SongData> {
       if (!file) return reject(new Error('No file selected'));
       const fileName = file.name.toLowerCase();
       const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          if (fileName.endsWith('.musicxml') || fileName.endsWith('.mxl')) {
-            const imported = importMusicXML(reader.result as string);
-            resolve(imported);
-          } else {
-            const data = JSON.parse(reader.result as string) as SongData;
-            resolve(data);
+
+      if (fileName.endsWith('.mxl')) {
+        // .mxl is a ZIP archive — must read as binary
+        reader.onload = () => {
+          try {
+            const bytes = new Uint8Array(reader.result as ArrayBuffer);
+            const unzipped = unzipSync(bytes);
+
+            // Try META-INF/container.xml to find rootfile path
+            let xmlString: string | null = null;
+            if (unzipped['META-INF/container.xml']) {
+              const containerXml = strFromU8(unzipped['META-INF/container.xml']);
+              const containerDoc = new DOMParser().parseFromString(containerXml, 'application/xml');
+              const rootPath = containerDoc.querySelector('rootfile')?.getAttribute('full-path');
+              if (rootPath && unzipped[rootPath]) {
+                xmlString = strFromU8(unzipped[rootPath]);
+              }
+            }
+            // Fallback: first .xml or .musicxml not in META-INF
+            if (!xmlString) {
+              const entry = Object.entries(unzipped).find(
+                ([name]) => !name.startsWith('META-INF') && (name.endsWith('.xml') || name.endsWith('.musicxml'))
+              );
+              if (entry) xmlString = strFromU8(entry[1]);
+            }
+            if (!xmlString) throw new Error('No XML content found in .mxl archive');
+            resolve(importMusicXML(xmlString));
+          } catch (e) {
+            reject(new Error('Failed to read .mxl: ' + (e as Error).message));
           }
-        } catch (e) {
-          reject(new Error('Invalid file format: ' + (e as Error).message));
-        }
-      };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsText(file);
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsArrayBuffer(file);
+      } else {
+        // Plain text: .musicxml, .json, .aurelia
+        reader.onload = () => {
+          try {
+            if (fileName.endsWith('.musicxml')) {
+              resolve(importMusicXML(reader.result as string));
+            } else {
+              resolve(JSON.parse(reader.result as string) as SongData);
+            }
+          } catch (e) {
+            reject(new Error('Invalid file format: ' + (e as Error).message));
+          }
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsText(file);
+      }
     };
     input.click();
   });
