@@ -18,6 +18,13 @@ import { generateId, cn } from '../lib/utils';
 const PITCHES = ['B5', 'A5', 'G5', 'F5', 'E5', 'D5', 'C5', 'B4', 'A4', 'G4', 'F4', 'E4', 'D4', 'C4', 'B3', 'A3', 'G3', 'F3', 'E3', 'D3', 'C3', 'B2', 'A2', 'G2', 'F2', 'E2', 'D2', 'C2', 'B1', 'A1', 'G1', 'F1', 'E1'];
 const P8 = 32; // container padding (p-8 = 2rem = 32px)
 
+/** Convert a 6-char hex color + alpha (0–1) to an 8-char hex with alpha channel. */
+function addAlpha(hex: string, alpha: number): string {
+  const h = hex.replace('#', '');
+  const a = Math.round(Math.max(0, Math.min(1, alpha)) * 255).toString(16).padStart(2, '0');
+  return `#${h}${a}`;
+}
+
 // Dimensions for each chord diagram box
 function ChordDiagramSVG({ frets, baseFret, fg = '#F2F2F2' }: ChordDiagramResult & { fg?: string }) {
   const lPad = baseFret > 1 ? 15 : 5;
@@ -815,8 +822,9 @@ export function Notation({
         })()}
 
         {/* Per-track, per-measure grid sections */}
-        {song.tracks.map((track, tIndex) =>
-          Array.from({ length: numRows }, (_, rowIdx) =>
+        {song.tracks.map((track, tIndex) => {
+          const tc = track.color ?? '#D4AF37';
+          return Array.from({ length: numRows }, (_, rowIdx) =>
             Array.from(
               { length: Math.min(measuresPerRow, totalMeasures - rowIdx * measuresPerRow) },
               (_, colIdx) => {
@@ -836,7 +844,7 @@ export function Notation({
                       width: notesWidthPerMeasure,
                       height: PITCHES.length * CELL_HEIGHT,
                       outline: (!chordMode && tIndex === activeTrackIndex)
-                        ? `1px solid ${song.tracks[tIndex]?.color ?? '#D4AF37'}40`
+                        ? `1px solid ${addAlpha(tc, 0.25)}`
                         : undefined,
                       touchAction: 'none',
                     }}
@@ -920,25 +928,50 @@ export function Notation({
                           const resizeNote = isNoteEnd ? spanNotes[0] : null;
                           const isResizing = noteResize?.noteId === resizeNote?.id;
 
+                          // Compute dynamic cell background/border based on track color
+                          const cellStyle: React.CSSProperties = { width: CELL_WIDTH, height: CELL_HEIGHT };
+                          if (isStartSelected) {
+                            cellStyle.borderLeftWidth = 2;
+                            cellStyle.borderLeftStyle = 'solid';
+                            cellStyle.borderLeftColor = 'rgba(77,150,255,0.80)';
+                            cellStyle.backgroundColor = 'rgba(77,150,255,0.60)';
+                          } else if (isStart && !startIsRest) {
+                            cellStyle.borderLeftWidth = 2;
+                            cellStyle.borderLeftStyle = 'solid';
+                            cellStyle.borderLeftColor = addAlpha(tc, 0.80);
+                            cellStyle.backgroundColor = addAlpha(tc, 0.60);
+                          } else if (isStart && startIsRest) {
+                            cellStyle.borderLeftWidth = 2;
+                            cellStyle.borderLeftStyle = 'solid';
+                            cellStyle.borderLeftColor = 'rgba(142,142,147,0.80)';
+                            cellStyle.backgroundColor = 'rgba(142,142,147,0.60)';
+                          } else if (isSelected && !isStartSelected) {
+                            cellStyle.backgroundColor = 'rgba(77,150,255,0.40)';
+                          } else if (dbOverlap) {
+                            cellStyle.backgroundColor = 'rgba(77,150,255,0.25)';
+                          } else if (isNoteDragGhost && !isActive) {
+                            cellStyle.backgroundColor = 'rgba(126,183,255,0.50)';
+                            cellStyle.borderLeftWidth = 2;
+                            cellStyle.borderLeftStyle = 'solid';
+                            cellStyle.borderLeftColor = '#4D96FF';
+                          } else if (isResizing) {
+                            cellStyle.backgroundColor = addAlpha(tc, 0.70);
+                          } else if (isActive && !activeIsRest) {
+                            cellStyle.backgroundColor = addAlpha(tc, 0.40);
+                          } else if (isActive && activeIsRest) {
+                            cellStyle.backgroundColor = 'rgba(142,142,147,0.40)';
+                          } else if (isStaged) {
+                            cellStyle.backgroundColor = addAlpha(tc, 0.10);
+                          }
+
                           return (
                             <div
                               key={cIdx}
                               className={cn(
                                 "relative border-r border-b border-[#D4AF37]/5 cursor-pointer transition-colors",
-                                !isActive && !isSelected && !isStaged ? "hover:bg-[#D4AF37]/20" : "",
-                                isActive && !isSelected && !activeIsRest ? "bg-[#D4AF37]/40" : "",
-                                isActive && !isSelected && activeIsRest ? "bg-[#8E8E93]/40" : "",
-                                isStart && !isStartSelected && !startIsRest ? "border-l-2 border-l-[#D4AF37]/80 bg-[#D4AF37]/60" : "",
-                                isStart && !isStartSelected && startIsRest ? "border-l-2 border-l-[#8E8E93]/80 bg-[#8E8E93]/60" : "",
-                                isSelected && !isStartSelected ? "bg-[#4D96FF]/40" : "",
-                                isStartSelected ? "border-l-2 border-l-[#4D96FF]/80 bg-[#4D96FF]/60" : "",
-                                isStaged && !isActive ? "bg-[#D4AF37]/10" : "",
-                                dbOverlap ? "bg-[#4D96FF]/25" : "",
                                 isNoteDragSource ? "opacity-40" : "",
-                                isNoteDragGhost && !isActive ? "bg-[#7EB7FF]/50 border-l-2 border-l-[#4D96FF]" : "",
-                                isResizing ? "bg-[#D4AF37]/70" : "",
                               )}
-                              style={{ width: CELL_WIDTH, height: CELL_HEIGHT }}
+                              style={cellStyle}
                               onMouseDown={e => {
                                 e.preventDefault();
                                 if (isStart && !chordMode) {
@@ -1002,8 +1035,8 @@ export function Notation({
                 );
               }
             )
-          )
-        )}
+          );
+        })}
       </div>
 
       {/* Guitar chord dictionary — appears below all staves when tab view is on */}
