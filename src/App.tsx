@@ -26,6 +26,7 @@ export default function App() {
   const [selectedDuration, setSelectedDuration] = useState(1);
   const [isDotted, setIsDotted] = useState(false);
   const [isRest, setIsRest] = useState(false);
+  const [tripletMode, setTripletMode] = useState(false);
   const [chordSelectMode, setChordSelectMode] = useState(false);
   const [harmonyMode, setHarmonyMode] = useState(false);
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
@@ -235,6 +236,7 @@ export default function App() {
 
     let fallbackDuration = selectedDuration;
     if (isDotted) fallbackDuration *= 1.5;
+    if (tripletMode) fallbackDuration = fallbackDuration * 2 / 3;
 
     const effectivePitches  = repeating ? lastChord!.pitches        : Array.from(activeNotes);
     const effectiveIsRest   = repeating ? lastChord!.isRest         : isRest;
@@ -242,6 +244,7 @@ export default function App() {
     const effectiveDynamic  = repeating ? lastChord!.dynamic         : (selectedDynamic ?? undefined);
     const effectiveArtic    = repeating ? lastChord!.articulation    : (selectedArticulation ?? undefined);
     const effectiveVoice    = repeating ? lastChord!.voice           : activeVoice;
+    const effectiveTuplet   = (!repeating && tripletMode) ? { actual: 3, normal: 2 } : undefined;
 
     const newIds = (effectiveIsRest ? ['_'] : effectivePitches).map(() => generateId());
 
@@ -268,10 +271,10 @@ export default function App() {
       dispatch({ type: 'SET_TRACK_NOTES', trackId, notes: prevNotes => {
         const newNotes = [...prevNotes];
         if (effectiveIsRest) {
-          newNotes.push({ id: newIds[0], pitch: 'B4', start: beat, duration, isRest: true });
+          newNotes.push({ id: newIds[0], pitch: 'B4', start: beat, duration, isRest: true, tuplet: effectiveTuplet });
         } else {
           effectivePitches.forEach((pitch, i) => {
-            newNotes.push({ id: newIds[i], pitch, start: beat, duration, isRest: false, voice: effectiveVoice, dynamic: effectiveDynamic, articulation: effectiveArtic });
+            newNotes.push({ id: newIds[i], pitch, start: beat, duration, isRest: false, voice: effectiveVoice, dynamic: effectiveDynamic, articulation: effectiveArtic, tuplet: effectiveTuplet });
           });
         }
         return newNotes;
@@ -286,10 +289,10 @@ export default function App() {
         }
         const newNotes = [...prevNotes];
         if (effectiveIsRest) {
-          newNotes.push({ id: newIds[0], pitch: 'B4', start: appendBeat, duration: effectiveDuration, isRest: true });
+          newNotes.push({ id: newIds[0], pitch: 'B4', start: appendBeat, duration: effectiveDuration, isRest: true, tuplet: effectiveTuplet });
         } else {
           effectivePitches.forEach((pitch, i) => {
-            newNotes.push({ id: newIds[i], pitch, start: appendBeat, duration: effectiveDuration, isRest: false, voice: effectiveVoice, dynamic: effectiveDynamic, articulation: effectiveArtic });
+            newNotes.push({ id: newIds[i], pitch, start: appendBeat, duration: effectiveDuration, isRest: false, voice: effectiveVoice, dynamic: effectiveDynamic, articulation: effectiveArtic, tuplet: effectiveTuplet });
           });
         }
         return newNotes;
@@ -312,7 +315,7 @@ export default function App() {
     } else {
       setSelectedNoteIds(new Set());
     }
-  }, [activeNotes, isRest, selectedDuration, isDotted, activeVoice, selectedDynamic, selectedArticulation, setSelectedNoteIds, selectedNoteIds, song, harmonyMode, lastChord, activeTrackIndex]);
+  }, [activeNotes, isRest, selectedDuration, isDotted, tripletMode, activeVoice, selectedDynamic, selectedArticulation, setSelectedNoteIds, selectedNoteIds, song, harmonyMode, lastChord, activeTrackIndex]);
 
   // Wrappers that set the sidebar UI value AND apply to any currently selected notes
   const handleSetDynamic = useCallback((d: DynamicMarking | null) => {
@@ -981,6 +984,8 @@ export default function App() {
           setIsDotted={setIsDotted}
           isRest={isRest}
           setIsRest={setIsRest}
+          tripletMode={tripletMode}
+          setTripletMode={setTripletMode}
           activeVoice={activeVoice}
           setActiveVoice={setActiveVoice}
           selectedDynamic={selectedDynamic}

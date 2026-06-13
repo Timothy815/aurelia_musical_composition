@@ -784,6 +784,66 @@ export function Notation({
             });
         })}
 
+        {/* Tuplet brackets (e.g. triplet "3") above note groups */}
+        {song.tracks.map((track, tIndex) => {
+          // Group consecutive notes with matching tuplet into runs
+          const sorted = [...track.notes].sort((a, b) => a.start - b.start);
+          const groups: { notes: typeof sorted; label: string }[] = [];
+          let run: typeof sorted = [];
+          let runKey = '';
+          for (const note of sorted) {
+            if (note.isRest || !note.tuplet) {
+              if (run.length > 1) groups.push({ notes: run, label: `${run[0].tuplet!.actual}` });
+              run = [];
+              runKey = '';
+            } else {
+              const key = `${note.tuplet.actual}:${note.tuplet.normal}`;
+              if (key !== runKey && run.length > 1) {
+                groups.push({ notes: run, label: `${run[0].tuplet!.actual}` });
+                run = [];
+              }
+              runKey = key;
+              run.push(note);
+            }
+          }
+          if (run.length > 1) groups.push({ notes: run, label: `${run[0].tuplet!.actual}` });
+
+          return groups.map((grp, gi) => {
+            const first = grp.notes[0];
+            const last = grp.notes[grp.notes.length - 1];
+            const mIdx1 = Math.floor(first.start / beatsPerMeasure);
+            const rowIdx = Math.floor(mIdx1 / measuresPerRow);
+            const col1 = mIdx1 % measuresPerRow;
+            const col2 = (Math.floor(last.start / beatsPerMeasure)) % measuresPerRow;
+            const x1 = P8 + getMeasureNoteStartX(col1, notesWidthPerMeasure) + (first.start - mIdx1 * beatsPerMeasure) * PIXELS_PER_BEAT;
+            const mIdx2 = Math.floor(last.start / beatsPerMeasure);
+            const x2 = P8 + getMeasureNoteStartX(col2, notesWidthPerMeasure) + (last.start - mIdx2 * beatsPerMeasure) * PIXELS_PER_BEAT + last.duration * PIXELS_PER_BEAT;
+            const y = P8 + rowIdx * rowHeight + pgGap(rowIdx) + trackYOffsets[tIndex] + STAVE_Y_FIRST - 32;
+            const mid = (x1 + x2) / 2;
+            const bracketH = 6;
+            return (
+              <svg
+                key={`tuplet-${track.id}-${gi}`}
+                className="absolute pointer-events-none"
+                style={{ left: x1, top: y, width: x2 - x1, height: bracketH + 14, overflow: 'visible' }}
+              >
+                {/* left foot */}
+                <line x1={0} y1={bracketH} x2={0} y2={0} stroke="rgba(180,160,80,0.8)" strokeWidth={1} />
+                {/* top line left half */}
+                <line x1={0} y1={0} x2={(mid - x1) - 6} y2={0} stroke="rgba(180,160,80,0.8)" strokeWidth={1} />
+                {/* top line right half */}
+                <line x1={(mid - x1) + 6} y1={0} x2={x2 - x1} y2={0} stroke="rgba(180,160,80,0.8)" strokeWidth={1} />
+                {/* right foot */}
+                <line x1={x2 - x1} y1={0} x2={x2 - x1} y2={bracketH} stroke="rgba(180,160,80,0.8)" strokeWidth={1} />
+                {/* label */}
+                <text x={(mid - x1)} y={4} textAnchor="middle" fontSize={9} fill="rgba(180,160,80,0.9)" fontFamily="serif" dominantBaseline="middle">
+                  {grp.label}
+                </text>
+              </svg>
+            );
+          });
+        })}
+
         {/* Hairpin crescendo / decrescendo markings */}
         {(song.hairpins ?? []).map(hairpin => {
           const beatToRowX = (beat: number) => {

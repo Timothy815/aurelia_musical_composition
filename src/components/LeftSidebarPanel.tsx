@@ -16,6 +16,8 @@ interface LeftSidebarPanelProps {
   setIsDotted: React.Dispatch<React.SetStateAction<boolean>>;
   isRest: boolean;
   setIsRest: React.Dispatch<React.SetStateAction<boolean>>;
+  tripletMode: boolean;
+  setTripletMode: React.Dispatch<React.SetStateAction<boolean>>;
   activeVoice: 1 | 2;
   setActiveVoice: (v: 1 | 2) => void;
   selectedDynamic: DynamicMarking | null;
@@ -113,6 +115,7 @@ export function LeftSidebarPanel({
   selectedDuration, setSelectedDuration,
   isDotted, setIsDotted,
   isRest, setIsRest,
+  tripletMode, setTripletMode,
   activeVoice, setActiveVoice,
   selectedDynamic, setSelectedDynamic,
   selectedArticulation, setSelectedArticulation,
@@ -221,6 +224,12 @@ export function LeftSidebarPanel({
               isRest ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
             )}
           >Rest</div>
+          <div
+            onClick={() => setTripletMode(v => !v)}
+            className={cn("flex-1 bg-[#151517] border p-2 flex items-center justify-center cursor-pointer transition-colors select-none rounded text-[10px] uppercase tracking-wider font-bold",
+              tripletMode ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
+            )}
+          >3:2</div>
         </div>
 
         {/* Voice toggle */}

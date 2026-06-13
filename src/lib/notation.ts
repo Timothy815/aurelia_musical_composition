@@ -1085,6 +1085,65 @@ export function renderNotationToCanvas(
     });
   }
 
+  // Tuplet brackets
+  song.tracks.forEach((track, tIndex) => {
+    const sorted = [...track.notes].sort((a, b) => a.start - b.start);
+    const groups: { notes: typeof sorted; label: string }[] = [];
+    let run: typeof sorted = [];
+    let runKey = '';
+    for (const note of sorted) {
+      if (note.isRest || !note.tuplet) {
+        if (run.length > 1) groups.push({ notes: run, label: `${run[0].tuplet!.actual}` });
+        run = []; runKey = '';
+      } else {
+        const key = `${note.tuplet.actual}:${note.tuplet.normal}`;
+        if (key !== runKey && run.length > 1) {
+          groups.push({ notes: run, label: `${run[0].tuplet!.actual}` });
+          run = [];
+        }
+        runKey = key;
+        run.push(note);
+      }
+    }
+    if (run.length > 1) groups.push({ notes: run, label: `${run[0].tuplet!.actual}` });
+
+    groups.forEach(grp => {
+      const first = grp.notes[0];
+      const last = grp.notes[grp.notes.length - 1];
+      const mIdx1 = Math.floor(first.start / beatsPerMeasure);
+      const col1 = mIdx1 % measuresPerRow;
+      const rowIdx = Math.floor(mIdx1 / measuresPerRow);
+      if (rowIdx < startRow || rowIdx >= endRow) return;
+      const mIdx2 = Math.floor(last.start / beatsPerMeasure);
+      const col2 = mIdx2 % measuresPerRow;
+      const x1 = getMeasureNoteStartX(col1, notesWidthPerMeasure) + (first.start - mIdx1 * beatsPerMeasure) * PIXELS_PER_BEAT;
+      const x2 = getMeasureNoteStartX(col2, notesWidthPerMeasure) + (last.start - mIdx2 * beatsPerMeasure) * PIXELS_PER_BEAT + last.duration * PIXELS_PER_BEAT;
+      const staveY = (rowIdx - startRow) * rowHeight + trackYOffsets[tIndex] + STAVE_Y_FIRST;
+      const y = staveY - 32;
+      const bracketH = 6;
+      ctx2d.save();
+      ctx2d.strokeStyle = '#A09050';
+      ctx2d.lineWidth = 1 * scale;
+      ctx2d.globalAlpha = 0.85;
+      ctx2d.beginPath();
+      ctx2d.moveTo(x1 * scale, (y + bracketH) * scale);
+      ctx2d.lineTo(x1 * scale, y * scale);
+      ctx2d.lineTo(((x1 + x2) / 2 - 6) * scale, y * scale);
+      ctx2d.moveTo(((x1 + x2) / 2 + 6) * scale, y * scale);
+      ctx2d.lineTo(x2 * scale, y * scale);
+      ctx2d.lineTo(x2 * scale, (y + bracketH) * scale);
+      ctx2d.stroke();
+      ctx2d.restore();
+      ctx2d.save();
+      ctx2d.font = `${9 * scale}px Times New Roman, serif`;
+      ctx2d.fillStyle = '#A09050';
+      ctx2d.textAlign = 'center';
+      ctx2d.textBaseline = 'middle';
+      ctx2d.fillText(grp.label, ((x1 + x2) / 2) * scale, (y + 2) * scale);
+      ctx2d.restore();
+    });
+  });
+
   // Hairpin markings
   if (song.hairpins?.length) {
     const beatToXRow = (beat: number) => {

@@ -7,13 +7,15 @@ export interface NoteData {
   id: string;
   pitch: string; // e.g., 'C4', 'C#4'
   start: number; // in beats
-  duration: number; // in beats
+  duration: number; // in beats (already scaled for tuplets)
   isRest?: boolean;
   voice?: 1 | 2;
   dynamic?: DynamicMarking;
   articulation?: ArticulationMarking;
   tied?: boolean; // true = this note is tied from the previous same-pitch note
   lyric?: string; // syllable text displayed below the stave
+  tuplet?: { actual: number; normal: number }; // e.g. {actual:3, normal:2} = triplet
+  graceNote?: { pitch: string; slash: boolean }; // acciaccatura or appoggiatura before this note
 }
 
 export interface TrackData {
