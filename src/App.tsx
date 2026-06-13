@@ -11,6 +11,7 @@ import { Fretboard } from './components/Fretboard';
 import { Notation } from './components/Notation';
 import { LeftSidebarPanel } from './components/LeftSidebarPanel';
 import { exportToMidi, exportToPdf, exportToMusicXML, saveFile, loadFile } from './lib/export';
+import { TemplatePickerModal } from './components/TemplatePickerModal';
 
 // ── App ────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -53,6 +54,7 @@ export default function App() {
   const [newTcBpm, setNewTcBpm] = useState('120');
   const [newRepeatMeasure, setNewRepeatMeasure] = useState('1');
   const [newRepeatType, setNewRepeatType] = useState<'start' | 'end'>('start');
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
   const [playheadBeat, setPlayheadBeat] = useState(-1);
   const [seekBeat, setSeekBeat] = useState(-1);
@@ -922,6 +924,13 @@ export default function App() {
 
         <div className="w-px h-5 bg-[#1F1F21] mx-1" />
         <button
+          onClick={() => setShowTemplatePicker(true)}
+          className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded"
+          title="New score from template"
+        >
+          New
+        </button>
+        <button
           onClick={() => saveFile(song)}
           className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded"
           title="Save composition (.aurelia)"
@@ -1094,6 +1103,19 @@ export default function App() {
           <Fretboard activeNotes={combinedNotes} onNoteOn={handleNoteOn} onNoteOff={handleNoteOff} latchMode={!playMode} />
         </div>
       </div>
+
+      {/* Template Picker Modal */}
+      {showTemplatePicker && (
+        <TemplatePickerModal
+          onClose={() => setShowTemplatePicker(false)}
+          onCreate={newSong => {
+            dispatch({ type: 'SET', payload: newSong });
+            setSelectedNoteIds(new Set());
+            setActiveTrackIndex(0);
+            setShowTemplatePicker(false);
+          }}
+        />
+      )}
     </div>
   );
 }
