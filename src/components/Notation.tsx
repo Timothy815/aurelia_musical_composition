@@ -4,6 +4,7 @@ import {
   calcLayout,
   getMeasureNoteStartX,
   rowBaseY,
+  getMeasureStaveX, BARLINE_PADDING,
   PIXELS_PER_BEAT, FIRST_MEASURE_EXTRA, STAVE_Y_FIRST,
   GRID_TOP_OFFSET, GRID_SUBDIVISIONS, CELL_WIDTH, CELL_HEIGHT,
   SCREEN_TRACK_HEIGHT,
@@ -835,6 +836,59 @@ export function Notation({
               </svg>
             );
           });
+        })}
+
+        {/* Volta brackets */}
+        {(song.voltas ?? []).map(volta => {
+          const elements: React.ReactNode[] = [];
+          // Iterate each row that this volta spans
+          for (let mIdx = volta.startMeasure; mIdx <= volta.endMeasure; mIdx++) {
+            const rowIdx = measuresPerRow > 0 ? Math.floor(mIdx / measuresPerRow) : 0;
+            const colIdx = measuresPerRow > 0 ? mIdx % measuresPerRow : 0;
+            // Only render once per row (at the row's start of the volta range)
+            const rowStartMeasure = rowIdx * measuresPerRow;
+            const rowEndMeasure = rowStartMeasure + measuresPerRow - 1;
+            if (mIdx !== Math.max(volta.startMeasure, rowStartMeasure)) continue;
+
+            const segStart = Math.max(volta.startMeasure, rowStartMeasure);
+            const segEnd = Math.min(volta.endMeasure, rowEndMeasure);
+            const isFirstSeg = segStart === volta.startMeasure;
+            const isLastSeg = segEnd === volta.endMeasure;
+
+            const x1 = P8 + getMeasureStaveX(segStart % measuresPerRow, notesWidthPerMeasure);
+            const colEnd = segEnd % measuresPerRow;
+            const x2 = P8 + getMeasureStaveX(colEnd, notesWidthPerMeasure)
+              + (colEnd === 0 ? FIRST_MEASURE_EXTRA : BARLINE_PADDING) + notesWidthPerMeasure;
+
+            const y = P8 + rowIdx * rowHeight + pgGap(rowIdx) + STAVE_Y_FIRST - 20;
+
+            elements.push(
+              <div
+                key={`${volta.id}-row${rowIdx}`}
+                className="absolute pointer-events-none z-10"
+                style={{
+                  left: x1,
+                  top: y,
+                  width: x2 - x1,
+                  height: 16,
+                  borderLeft: isFirstSeg ? '2px solid rgba(212,175,55,0.8)' : undefined,
+                  borderTop: '2px solid rgba(212,175,55,0.8)',
+                  borderRight: isLastSeg ? '2px solid rgba(212,175,55,0.8)' : undefined,
+                }}
+              >
+                {isFirstSeg && (
+                  <span style={{
+                    position: 'absolute', top: 1, left: 4,
+                    fontSize: 9, color: 'rgba(212,175,55,0.9)',
+                    fontFamily: 'serif', userSelect: 'none',
+                  }}>
+                    {volta.number}.
+                  </span>
+                )}
+              </div>
+            );
+          }
+          return elements;
         })}
 
         {/* Playhead line */}

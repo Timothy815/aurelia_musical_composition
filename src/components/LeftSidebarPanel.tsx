@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus, Copy } from 'lucide-react';
-import { SongData, NoteData, InstrumentPreset, DynamicMarking, ArticulationMarking, EffectsSettings, HairpinData } from '../types';
+import { SongData, NoteData, InstrumentPreset, DynamicMarking, ArticulationMarking, EffectsSettings, HairpinData, VoltaData } from '../types';
 import { cn, generateId } from '../lib/utils';
 import { audio } from '../lib/audio';
 import { INSTRUMENT_LABELS, TRACK_COLORS } from '../lib/constants';
@@ -53,6 +53,14 @@ interface LeftSidebarPanelProps {
   setNewRepeatMeasure: (v: string) => void;
   newRepeatType: 'start' | 'end';
   setNewRepeatType: (v: 'start' | 'end') => void;
+  showVoltas: boolean;
+  setShowVoltas: React.Dispatch<React.SetStateAction<boolean>>;
+  newVoltaStart: string;
+  setNewVoltaStart: (v: string) => void;
+  newVoltaEnd: string;
+  setNewVoltaEnd: (v: string) => void;
+  newVoltaNumber: 1 | 2 | 3;
+  setNewVoltaNumber: (v: 1 | 2 | 3) => void;
 }
 
 function FxSlider({ label, min, max, step = 0.01, value, onChange }: {
@@ -118,6 +126,7 @@ export function LeftSidebarPanel({
   showSidebar, setShowSidebar,
   showTempoChanges, setShowTempoChanges, newTcMeasure, setNewTcMeasure, newTcBpm, setNewTcBpm,
   showRepeats, setShowRepeats, newRepeatMeasure, setNewRepeatMeasure, newRepeatType, setNewRepeatType,
+  showVoltas, setShowVoltas, newVoltaStart, setNewVoltaStart, newVoltaEnd, setNewVoltaEnd, newVoltaNumber, setNewVoltaNumber,
 }: LeftSidebarPanelProps) {
   const updateFx = <K extends keyof EffectsSettings>(key: K, patch: Partial<EffectsSettings[K]>) =>
     setEffectsSettings(s => ({ ...s, [key]: { ...s[key], ...patch } }));
@@ -782,6 +791,70 @@ export function LeftSidebarPanel({
                     ...s,
                     repeats: [...(s.repeats ?? []).filter(r => !(r.measure === measure && r.type === newRepeatType)), { measure, type: newRepeatType }]
                       .sort((a, b) => a.measure - b.measure)
+                  }));
+                }}
+                className="ml-auto text-[9px] px-2 py-0.5 rounded bg-[#1A1A1C] border border-[#2A2A2D] text-[#8E8E93] hover:text-white hover:border-[#444] transition-colors"
+              >Add</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Volta Brackets */}
+      <div className="border-t border-[#1F1F21] shrink-0">
+        <div className="px-4 pt-3 pb-2">
+          <button className="flex justify-between items-center w-full" onClick={() => setShowVoltas(v => !v)}>
+            <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666]">Volta Brackets</h2>
+            <span className="text-[#555] text-[10px]">{showVoltas ? '▲' : '▼'}</span>
+          </button>
+        </div>
+        {showVoltas && (
+          <div className="px-4 pb-3 space-y-2">
+            {(song.voltas ?? []).length === 0 && (
+              <p className="text-[9px] text-[#444] italic">No volta brackets added.</p>
+            )}
+            {(song.voltas ?? []).sort((a, b) => a.startMeasure - b.startMeasure).map((v, idx) => (
+              <div key={v.id} className="flex items-center justify-between gap-2 text-[9px] text-[#8E8E93]">
+                <span>
+                  <span className="text-[#D4AF37]">{v.number}.</span>
+                  {' '}M{v.startMeasure + 1}–M{v.endMeasure + 1}
+                </span>
+                <button
+                  onClick={() => setSong(s => ({ ...s, voltas: (s.voltas ?? []).filter((_, i) => i !== idx) }))}
+                  className="text-red-500 hover:text-red-400 px-1"
+                >✕</button>
+              </div>
+            ))}
+            <div className="flex items-center gap-1 pt-1 border-t border-[#151517] flex-wrap">
+              <span className="text-[8px] text-[#444] shrink-0">M</span>
+              <input
+                type="number" min={1} value={newVoltaStart}
+                onChange={e => setNewVoltaStart(e.target.value)}
+                className="w-10 bg-[#0F0F10] border border-[#222] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none"
+              />
+              <span className="text-[8px] text-[#444] shrink-0">–</span>
+              <input
+                type="number" min={1} value={newVoltaEnd}
+                onChange={e => setNewVoltaEnd(e.target.value)}
+                className="w-10 bg-[#0F0F10] border border-[#222] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none"
+              />
+              <select
+                value={newVoltaNumber}
+                onChange={e => setNewVoltaNumber(Number(e.target.value) as 1 | 2 | 3)}
+                className="bg-[#0F0F10] border border-[#222] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none cursor-pointer"
+              >
+                <option value={1}>1st</option>
+                <option value={2}>2nd</option>
+                <option value={3}>3rd</option>
+              </select>
+              <button
+                onClick={() => {
+                  const start = Math.max(0, (parseInt(newVoltaStart) || 1) - 1);
+                  const end = Math.max(start, (parseInt(newVoltaEnd) || 1) - 1);
+                  setSong(s => ({
+                    ...s,
+                    voltas: [...(s.voltas ?? []), { id: generateId(), startMeasure: start, endMeasure: end, number: newVoltaNumber }]
+                      .sort((a, b) => a.startMeasure - b.startMeasure)
                   }));
                 }}
                 className="ml-auto text-[9px] px-2 py-0.5 rounded bg-[#1A1A1C] border border-[#2A2A2D] text-[#8E8E93] hover:text-white hover:border-[#444] transition-colors"

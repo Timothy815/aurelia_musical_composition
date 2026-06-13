@@ -1134,5 +1134,66 @@ export function renderNotationToCanvas(
     });
   }
 
+  // Draw volta brackets
+  if (song.voltas?.length) {
+    const { measuresPerRow, rowHeight, numRows } = layout;
+    const rowStartY = (rIdx: number) => rIdx * rowHeight;
+
+    song.voltas.forEach(volta => {
+      for (let mIdx = volta.startMeasure; mIdx <= volta.endMeasure; mIdx++) {
+        if (mIdx >= totalMeasures) break;
+        const rowIdx = measuresPerRow > 0 ? Math.floor(mIdx / measuresPerRow) : 0;
+        if (rowIdx >= numRows) break;
+        const rowStartMeasure = rowIdx * measuresPerRow;
+        const rowEndMeasure = rowStartMeasure + measuresPerRow - 1;
+        if (mIdx !== Math.max(volta.startMeasure, rowStartMeasure)) continue;
+
+        const segStart = Math.max(volta.startMeasure, rowStartMeasure);
+        const segEnd = Math.min(volta.endMeasure, rowEndMeasure);
+        const isFirstSeg = segStart === volta.startMeasure;
+        const isLastSeg = segEnd === volta.endMeasure;
+
+        const x1 = getMeasureStaveX(segStart % measuresPerRow, notesWidthPerMeasure);
+        const colEnd = segEnd % measuresPerRow;
+        const x2 = getMeasureStaveX(colEnd, notesWidthPerMeasure)
+          + (colEnd === 0 ? FIRST_MEASURE_EXTRA : BARLINE_PADDING) + notesWidthPerMeasure;
+        const y = rowStartY(rowIdx) + STAVE_Y_FIRST - 20;
+        const bracketH = 14;
+
+        ctx2d.save();
+        ctx2d.strokeStyle = '#A08020';
+        ctx2d.lineWidth = 1.5 * scale;
+        ctx2d.globalAlpha = 0.85;
+        ctx2d.beginPath();
+        // top line
+        ctx2d.moveTo(x1 * scale, y * scale);
+        ctx2d.lineTo(x2 * scale, y * scale);
+        // left vertical (only on first segment)
+        if (isFirstSeg) {
+          ctx2d.moveTo(x1 * scale, y * scale);
+          ctx2d.lineTo(x1 * scale, (y + bracketH) * scale);
+        }
+        // right vertical (only on last segment)
+        if (isLastSeg) {
+          ctx2d.moveTo(x2 * scale, y * scale);
+          ctx2d.lineTo(x2 * scale, (y + bracketH) * scale);
+        }
+        ctx2d.stroke();
+        ctx2d.restore();
+
+        if (isFirstSeg) {
+          ctx2d.save();
+          ctx2d.font = `${9 * scale}px Times New Roman, serif`;
+          ctx2d.fillStyle = '#A08020';
+          ctx2d.globalAlpha = 0.9;
+          ctx2d.textAlign = 'left';
+          ctx2d.textBaseline = 'top';
+          ctx2d.fillText(`${volta.number}.`, (x1 + 4) * scale, (y + 2) * scale);
+          ctx2d.restore();
+        }
+      }
+    });
+  }
+
   return layout;
 }

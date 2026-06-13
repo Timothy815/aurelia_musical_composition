@@ -45,6 +45,13 @@ export interface HairpinData {
   type: 'cresc' | 'decresc';
 }
 
+export interface VoltaData {
+  id: string;
+  startMeasure: number; // 0-based measure index
+  endMeasure: number;   // 0-based, inclusive
+  number: 1 | 2 | 3;
+}
+
 export interface SongData {
   title?: string;
   composer?: string;
@@ -56,6 +63,7 @@ export interface SongData {
   repeats?: RepeatMarker[];
   chordSymbols?: Record<string, string>; // beat key (beat.toFixed(3)) → chord name override
   hairpins?: HairpinData[];
+  voltas?: VoltaData[];
 }
 
 export type InputMode = 'compose' | 'chord_builder';

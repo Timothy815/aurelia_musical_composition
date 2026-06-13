@@ -54,6 +54,10 @@ export default function App() {
   const [newTcBpm, setNewTcBpm] = useState('120');
   const [newRepeatMeasure, setNewRepeatMeasure] = useState('1');
   const [newRepeatType, setNewRepeatType] = useState<'start' | 'end'>('start');
+  const [showVoltas, setShowVoltas] = useState(false);
+  const [newVoltaStart, setNewVoltaStart] = useState('1');
+  const [newVoltaEnd, setNewVoltaEnd] = useState('1');
+  const [newVoltaNumber, setNewVoltaNumber] = useState<1 | 2 | 3>(1);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
   const [playheadBeat, setPlayheadBeat] = useState(-1);
@@ -1014,6 +1018,14 @@ export default function App() {
           setNewRepeatMeasure={setNewRepeatMeasure}
           newRepeatType={newRepeatType}
           setNewRepeatType={setNewRepeatType}
+          showVoltas={showVoltas}
+          setShowVoltas={setShowVoltas}
+          newVoltaStart={newVoltaStart}
+          setNewVoltaStart={setNewVoltaStart}
+          newVoltaEnd={newVoltaEnd}
+          setNewVoltaEnd={setNewVoltaEnd}
+          newVoltaNumber={newVoltaNumber}
+          setNewVoltaNumber={setNewVoltaNumber}
         />
 
         {!showSidebar && (
