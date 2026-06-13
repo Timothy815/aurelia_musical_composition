@@ -309,7 +309,7 @@ export function LeftSidebarPanel({
         <div className="mt-3">
           <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-2">Articulation</h2>
           <div className="flex gap-1">
-            {([['staccato', '·'], ['accent', '>'], ['tenuto', '—']] as [ArticulationMarking, string][]).map(([a, sym]) => (
+            {([['staccato', '·'], ['accent', '>'], ['tenuto', '—'], ['fermata', '∩']] as [ArticulationMarking, string][]).map(([a, sym]) => (
               <div
                 key={a}
                 onClick={() => {

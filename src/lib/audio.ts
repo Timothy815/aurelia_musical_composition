@@ -10,12 +10,14 @@ const ARTICULATION_VEL: Record<string, number> = {
   staccato: 1.0,   // unchanged — duration handles the difference
   accent:   1.35,  // louder attack
   tenuto:   1.05,  // slight stress, full duration
+  fermata:  1.0,
 };
 
 const ARTICULATION_DUR: Record<string, number> = {
   staccato: 0.45,
   accent:   1.0,
-  tenuto:   1.0,
+  tenuto:   1.05,
+  fermata:  1.75,
 };
 
 // ── Tempo / repeat helpers ────────────────────────────────────────────────────

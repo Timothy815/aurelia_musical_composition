@@ -1,7 +1,7 @@
 export type InstrumentPreset = 'piano' | 'guitar' | 'strings' | 'brass' | 'bass' | 'flute' | 'organ' | 'synth';
 
 export type DynamicMarking = 'ppp' | 'pp' | 'p' | 'mp' | 'mf' | 'f' | 'ff' | 'fff';
-export type ArticulationMarking = 'staccato' | 'accent' | 'tenuto';
+export type ArticulationMarking = 'staccato' | 'accent' | 'tenuto' | 'fermata';
 
 export interface NoteData {
   id: string;
