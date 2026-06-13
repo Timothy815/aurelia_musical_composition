@@ -716,7 +716,7 @@ export function LeftSidebarPanel({
       </div>
 
       {/* Instruments */}
-      <div className="p-4 border-t border-[#1F1F21] flex flex-col shrink-0 max-h-72">
+      <div className="p-4 border-t border-[#1F1F21] flex flex-col shrink-0 max-h-48">
         <div className="flex justify-between items-center mb-3">
           <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666]">Instruments</h2>
           <button
@@ -734,7 +734,7 @@ export function LeftSidebarPanel({
             <Plus className="w-3 h-3" />
           </button>
         </div>
-        <div className="space-y-2 overflow-y-auto custom-scrollbar">
+        <div className="space-y-2 overflow-y-auto custom-scrollbar flex-1 min-h-0">
           {song.tracks.map((track, i) => (
             <div
               key={track.id}
