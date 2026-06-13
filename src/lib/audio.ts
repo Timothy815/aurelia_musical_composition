@@ -1,5 +1,5 @@
 import * as Tone from 'tone';
-import { SongData, NoteData, InstrumentPreset, EffectsSettings, TempoChange, RepeatMarker, HairpinData } from '../types';
+import { SongData, NoteData, InstrumentPreset, EffectsSettings, TempoChange, RepeatMarker, HairpinData, VoltaData } from '../types';
 
 const DYNAMIC_VELOCITY: Record<string, number> = {
   ppp: 0.08, pp: 0.18, p: 0.32, mp: 0.5, mf: 0.65, f: 0.8, ff: 0.92, fff: 1.0,
@@ -35,38 +35,111 @@ function beatToSeconds(beat: number, base: number, changes: TempoChange[]): numb
   return sec + (beat - prev) * (60 / bpm);
 }
 
+/**
+ * Build the ordered sequence of 0-based measure indices to play, respecting
+ * repeat signs and volta brackets.
+ *
+ * Algorithm:
+ *  - Walk measures 0..totalM-1.
+ *  - On reaching a repeat-end, jump back to the matching repeat-start for a
+ *    second pass.  Track how many times each repeat-end has been visited so
+ *    we only repeat once.
+ *  - Volta routing: a volta bracket tagged with number N is only played on
+ *    pass N through that repeat.  Concretely, when we're on pass 1 we skip
+ *    volta-2+ measures; when on pass 2 we skip volta-1 measures.
+ */
+function buildMeasurePlaySequence(
+  repeats: RepeatMarker[],
+  voltas: VoltaData[],
+  totalMeasures: number
+): number[] {
+  if (!totalMeasures) return [];
+
+  const endMs = repeats.filter(r => r.type === 'end').map(r => r.measure - 1).sort((a, b) => a - b);
+  const startMs = repeats.filter(r => r.type === 'start').map(r => r.measure - 1);
+
+  // Map each repeat-end measure → matching repeat-start measure
+  const repeatPairs: Map<number, number> = new Map();
+  endMs.forEach(endM => {
+    const start = [...startMs].filter(s => s <= endM).sort((a, b) => b - a)[0] ?? 0;
+    repeatPairs.set(endM, start);
+  });
+
+  // Helper: which volta pass (1 or 2) should a given measure play on?
+  // Returns 0 if the measure is not inside any volta bracket.
+  const voltaPass = (m: number): number => {
+    for (const v of voltas) {
+      if (m >= v.startMeasure && m <= v.endMeasure) return v.number;
+    }
+    return 0;
+  };
+
+  const visited = new Map<number, number>(); // repeatEnd → times visited
+  const seq: number[] = [];
+  let m = 0;
+  let pass = 1; // current pass through the active repeat section
+
+  while (m < totalMeasures) {
+    const vp = voltaPass(m);
+    // Skip this measure if it belongs to a volta that shouldn't play on this pass
+    if (vp !== 0 && vp !== pass) {
+      m++;
+      continue;
+    }
+
+    seq.push(m);
+
+    // Check if this measure is a repeat-end
+    if (repeatPairs.has(m)) {
+      const timesVisited = (visited.get(m) ?? 0) + 1;
+      visited.set(m, timesVisited);
+      if (timesVisited === 1) {
+        // First time at this repeat-end → jump back
+        const jumpTo = repeatPairs.get(m)!;
+        pass = 2;
+        m = jumpTo;
+        continue;
+      } else {
+        // Already repeated → continue forward, reset pass
+        pass = 1;
+      }
+    }
+    m++;
+  }
+
+  return seq;
+}
+
 function expandNotesForRepeats(
   notes: NoteData[],
   repeats: RepeatMarker[],
+  voltas: VoltaData[],
   beatsPerMeasure: number
 ): NoteData[] {
-  if (!repeats?.length) return notes;
-  const endMs = repeats.filter(r => r.type === 'end').map(r => r.measure - 1).sort((a, b) => a - b);
-  const startMs = repeats.filter(r => r.type === 'start').map(r => r.measure - 1);
-  if (!endMs.length) return notes;
-  const pairs = endMs.map(endM => ({
-    start: [...startMs].filter(s => s <= endM).sort((a, b) => b - a)[0] ?? 0,
-    end: endM,
-  }));
-  const maxBeat = notes.reduce((m, n) => Math.max(m, n.start + n.duration), 0);
-  const totalM = Math.max(Math.ceil(maxBeat / beatsPerMeasure), (endMs[endMs.length - 1] ?? 0) + 1);
+  if (!repeats?.length && !voltas?.length) return notes;
+
+  const maxBeat = notes.reduce((acc, n) => Math.max(acc, n.start + n.duration), 0);
+  const totalMeasures = Math.max(
+    Math.ceil(maxBeat / beatsPerMeasure),
+    repeats.reduce((acc, r) => Math.max(acc, r.measure), 0),
+    voltas.reduce((acc, v) => Math.max(acc, v.endMeasure + 1), 0),
+    1
+  );
+
+  const sequence = buildMeasurePlaySequence(repeats, voltas, totalMeasures);
+
   const result: NoteData[] = [];
   let offset = 0;
-  for (let m = 0; m < totalM; m++) {
-    const mS = m * beatsPerMeasure, mE = (m + 1) * beatsPerMeasure;
+
+  for (const mIdx of sequence) {
+    const mS = mIdx * beatsPerMeasure;
+    const mE = (mIdx + 1) * beatsPerMeasure;
     notes
       .filter(n => n.start >= mS - 0.001 && n.start < mE - 0.001)
-      .forEach(n => result.push({ ...n, start: n.start + offset }));
-    const pair = pairs.find(p => p.end === m);
-    if (pair) {
-      const rs = pair.start * beatsPerMeasure;
-      const repLen = mE - rs;
-      notes
-        .filter(n => n.start >= rs - 0.001 && n.start < mE - 0.001)
-        .forEach(n => result.push({ ...n, start: n.start - rs + mE + offset }));
-      offset += repLen;
-    }
+      .forEach(n => result.push({ ...n, start: n.start - mS + offset }));
+    offset += beatsPerMeasure;
   }
+
   return result.sort((a, b) => a.start - b.start);
 }
 
@@ -601,7 +674,7 @@ class AudioEngine {
         : (this.sampler && this.sampler.loaded) ? this.sampler : this.fallbackSynth!;
 
       const hairpins = song.hairpins ?? [];
-      const notes = this.mergeTiedNotes(expandNotesForRepeats(track.notes, repeats, song.timeSignature[0] * (4 / song.timeSignature[1])));
+      const notes = this.mergeTiedNotes(expandNotesForRepeats(track.notes, repeats, song.voltas ?? [], song.timeSignature[0] * (4 / song.timeSignature[1])));
 
       notes.forEach(note => {
         if (note.isRest) return;
