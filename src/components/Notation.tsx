@@ -783,6 +783,60 @@ export function Notation({
             });
         })}
 
+        {/* Hairpin crescendo / decrescendo markings */}
+        {(song.hairpins ?? []).map(hairpin => {
+          const beatToRowX = (beat: number) => {
+            const mIdx = Math.floor(beat / beatsPerMeasure);
+            const cIdx = mIdx % measuresPerRow;
+            const beatInMeasure = beat - mIdx * beatsPerMeasure;
+            return {
+              x: P8 + getMeasureNoteStartX(cIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT,
+              rowIdx: Math.floor(mIdx / measuresPerRow),
+            };
+          };
+          const { x: x1, rowIdx: r1 } = beatToRowX(hairpin.startBeat);
+          const { x: x2, rowIdx: r2 } = beatToRowX(hairpin.endBeat);
+          // Render within each row this hairpin spans
+          const rows = Array.from({ length: r2 - r1 + 1 }, (_, i) => r1 + i);
+          return rows.map(rowIdx => {
+            if (rowIdx >= numRows) return null;
+            const rowStartBeat = rowIdx * measuresPerRow * beatsPerMeasure;
+            const rowEndBeat = rowStartBeat + measuresPerRow * beatsPerMeasure;
+            const clampedStart = Math.max(hairpin.startBeat, rowStartBeat);
+            const clampedEnd = Math.min(hairpin.endBeat, rowEndBeat);
+            if (clampedStart >= clampedEnd) return null;
+            const { x: sx } = beatToRowX(clampedStart);
+            const { x: ex } = beatToRowX(clampedEnd);
+            const baseY = P8 + rowIdx * rowHeight + pgGap(rowIdx) + STAVE_Y_FIRST + 62;
+            const w = ex - sx;
+            const h = 10;
+            const isCresc = hairpin.type === 'cresc';
+            return (
+              <svg
+                key={`${hairpin.id}-r${rowIdx}`}
+                className="absolute z-15 pointer-events-none"
+                style={{ left: sx, top: baseY - h / 2, width: w, height: h }}
+                viewBox={`0 0 ${w} ${h}`}
+                preserveAspectRatio="none"
+              >
+                {isCresc ? (
+                  // < shape: wide at right, pointed at left
+                  <>
+                    <line x1={0} y1={h / 2} x2={w} y2={0} stroke="rgba(212,175,55,0.7)" strokeWidth={1.2} />
+                    <line x1={0} y1={h / 2} x2={w} y2={h} stroke="rgba(212,175,55,0.7)" strokeWidth={1.2} />
+                  </>
+                ) : (
+                  // > shape: wide at left, pointed at right
+                  <>
+                    <line x1={0} y1={0} x2={w} y2={h / 2} stroke="rgba(212,175,55,0.7)" strokeWidth={1.2} />
+                    <line x1={0} y1={h} x2={w} y2={h / 2} stroke="rgba(212,175,55,0.7)" strokeWidth={1.2} />
+                  </>
+                )}
+              </svg>
+            );
+          });
+        })}
+
         {/* Playhead line */}
         {playheadBeat !== undefined && playheadBeat >= 0 && (() => {
           const displayBeat = scrubBeat ?? playheadBeat;

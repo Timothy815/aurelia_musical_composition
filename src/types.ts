@@ -38,6 +38,13 @@ export interface RepeatMarker {
   type: 'start' | 'end';
 }
 
+export interface HairpinData {
+  id: string;
+  startBeat: number;
+  endBeat: number;
+  type: 'cresc' | 'decresc';
+}
+
 export interface SongData {
   title?: string;
   composer?: string;
@@ -48,6 +55,7 @@ export interface SongData {
   tempoChanges?: TempoChange[];
   repeats?: RepeatMarker[];
   chordSymbols?: Record<string, string>; // beat key (beat.toFixed(3)) → chord name override
+  hairpins?: HairpinData[];
 }
 
 export type InputMode = 'compose' | 'chord_builder';

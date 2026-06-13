@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus, Copy } from 'lucide-react';
-import { SongData, NoteData, InstrumentPreset, DynamicMarking, ArticulationMarking, EffectsSettings } from '../types';
+import { SongData, NoteData, InstrumentPreset, DynamicMarking, ArticulationMarking, EffectsSettings, HairpinData } from '../types';
 import { cn, generateId } from '../lib/utils';
 import { audio } from '../lib/audio';
 import { INSTRUMENT_LABELS, TRACK_COLORS } from '../lib/constants';
@@ -290,6 +290,61 @@ export function LeftSidebarPanel({
             ))}
           </div>
         </div>
+
+        {/* Hairpins — only in score mode when notes are selected */}
+        {!playMode && selectedNoteIds.size > 0 && (() => {
+          const selectedNotes = song.tracks.flatMap(t => t.notes).filter(n => selectedNoteIds.has(n.id) && !n.isRest);
+          if (selectedNotes.length === 0) return null;
+          const minBeat = Math.min(...selectedNotes.map(n => n.start));
+          const maxBeat = Math.max(...selectedNotes.map(n => n.start + n.duration));
+          const existingHairpin = (song.hairpins ?? []).find(h =>
+            Math.abs(h.startBeat - minBeat) < 0.01 && Math.abs(h.endBeat - maxBeat) < 0.01
+          );
+          const addHairpin = (type: HairpinData['type']) => {
+            setSong(prev => {
+              const filtered = (prev.hairpins ?? []).filter(h =>
+                !(Math.abs(h.startBeat - minBeat) < 0.01 && Math.abs(h.endBeat - maxBeat) < 0.01)
+              );
+              return { ...prev, hairpins: [...filtered, { id: generateId(), startBeat: minBeat, endBeat: maxBeat, type }] };
+            });
+          };
+          const removeHairpin = () => {
+            setSong(prev => ({
+              ...prev,
+              hairpins: (prev.hairpins ?? []).filter(h =>
+                !(Math.abs(h.startBeat - minBeat) < 0.01 && Math.abs(h.endBeat - maxBeat) < 0.01)
+              )
+            }));
+          };
+          return (
+            <div className="mt-3">
+              <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-1.5">Hairpin</h2>
+              <div className="flex gap-1 items-center">
+                <button
+                  onClick={() => addHairpin('cresc')}
+                  className={cn("flex-1 bg-[#151517] border p-1.5 flex items-center justify-center cursor-pointer transition-colors select-none rounded text-xs",
+                    existingHairpin?.type === 'cresc' ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
+                  )}
+                  title="Crescendo"
+                >﹤ cresc</button>
+                <button
+                  onClick={() => addHairpin('decresc')}
+                  className={cn("flex-1 bg-[#151517] border p-1.5 flex items-center justify-center cursor-pointer transition-colors select-none rounded text-xs",
+                    existingHairpin?.type === 'decresc' ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
+                  )}
+                  title="Decrescendo"
+                >decresc ﹥</button>
+                {existingHairpin && (
+                  <button
+                    onClick={removeHairpin}
+                    className="px-1.5 py-1.5 text-red-500 hover:text-red-400 text-[10px] rounded border border-[#222] hover:border-red-800 bg-[#151517] transition-colors"
+                    title="Remove hairpin"
+                  >✕</button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Lyric entry — only visible in score mode when notes are selected */}
         {!playMode && selectedNoteIds.size > 0 && (() => {

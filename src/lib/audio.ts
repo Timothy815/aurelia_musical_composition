@@ -1,5 +1,5 @@
 import * as Tone from 'tone';
-import { SongData, NoteData, InstrumentPreset, EffectsSettings, TempoChange, RepeatMarker } from '../types';
+import { SongData, NoteData, InstrumentPreset, EffectsSettings, TempoChange, RepeatMarker, HairpinData } from '../types';
 
 const DYNAMIC_VELOCITY: Record<string, number> = {
   ppp: 0.08, pp: 0.18, p: 0.32, mp: 0.5, mf: 0.65, f: 0.8, ff: 0.92, fff: 1.0,
@@ -68,6 +68,20 @@ function expandNotesForRepeats(
     }
   }
   return result.sort((a, b) => a.start - b.start);
+}
+
+// ── Hairpin velocity ──────────────────────────────────────────────────────────
+
+function getHairpinVelocityMultiplier(beat: number, hairpins: HairpinData[]): number {
+  for (const h of hairpins) {
+    if (beat >= h.startBeat - 0.001 && beat <= h.endBeat + 0.001) {
+      const span = h.endBeat - h.startBeat;
+      if (span <= 0) return 1;
+      const t = Math.max(0, Math.min(1, (beat - h.startBeat) / span));
+      return h.type === 'cresc' ? 0.6 + t * 0.4 : 1.0 - t * 0.4;
+    }
+  }
+  return 1;
 }
 
 // ── Instrument factory ────────────────────────────────────────────────────────
@@ -580,6 +594,7 @@ class AudioEngine {
         ? this.trackSynths.get(track.id)!
         : (this.sampler && this.sampler.loaded) ? this.sampler : this.fallbackSynth!;
 
+      const hairpins = song.hairpins ?? [];
       const notes = this.mergeTiedNotes(expandNotesForRepeats(track.notes, repeats, song.timeSignature[0] * (4 / song.timeSignature[1])));
 
       notes.forEach(note => {
@@ -590,7 +605,8 @@ class AudioEngine {
         const baseVel = DYNAMIC_VELOCITY[note.dynamic ?? 'mf'] ?? 0.65;
         const artVel = note.articulation ? (ARTICULATION_VEL[note.articulation] ?? 1.0) : 1.0;
         const artDur = note.articulation ? (ARTICULATION_DUR[note.articulation] ?? 1.0) : 1.0;
-        const velocity = Math.min(1, baseVel * artVel * trackVol);
+        const hairpinMul = getHairpinVelocityMultiplier(note.start, hairpins);
+        const velocity = Math.min(1, baseVel * artVel * hairpinMul * trackVol);
         const playDuration = durationSecs * artDur;
 
         Tone.Transport.schedule((time) => {

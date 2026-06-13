@@ -1085,5 +1085,54 @@ export function renderNotationToCanvas(
     });
   }
 
+  // Hairpin markings
+  if (song.hairpins?.length) {
+    const beatToXRow = (beat: number) => {
+      const mIdx = Math.floor(beat / beatsPerMeasure);
+      const colIdx = mIdx % measuresPerRow;
+      const beatInM = beat - mIdx * beatsPerMeasure;
+      return {
+        x: getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInM * PIXELS_PER_BEAT,
+        rowIdx: Math.floor(mIdx / measuresPerRow),
+      };
+    };
+    song.hairpins.forEach(hairpin => {
+      const { rowIdx: r1 } = beatToXRow(hairpin.startBeat);
+      const { rowIdx: r2 } = beatToXRow(hairpin.endBeat);
+      const rows = Array.from({ length: r2 - r1 + 1 }, (_, i) => r1 + i);
+      rows.forEach(rowIdx => {
+        if (rowIdx < startRow || rowIdx >= endRow) return;
+        const adjRowIdx = rowIdx - startRow;
+        const rowStartBeat = rowIdx * measuresPerRow * beatsPerMeasure;
+        const rowEndBeat = rowStartBeat + measuresPerRow * beatsPerMeasure;
+        const clampedStart = Math.max(hairpin.startBeat, rowStartBeat);
+        const clampedEnd = Math.min(hairpin.endBeat, rowEndBeat);
+        if (clampedStart >= clampedEnd) return;
+        const { x: sx } = beatToXRow(clampedStart);
+        const { x: ex } = beatToXRow(clampedEnd);
+        const baseY = adjRowIdx * rowHeight + STAVE_Y_FIRST + 62;
+        const halfH = 5;
+        ctx2d.save();
+        ctx2d.strokeStyle = '#888888';
+        ctx2d.lineWidth = 1 * scale;
+        ctx2d.globalAlpha = 0.8;
+        ctx2d.beginPath();
+        if (hairpin.type === 'cresc') {
+          ctx2d.moveTo(sx * scale, baseY * scale);
+          ctx2d.lineTo(ex * scale, (baseY - halfH) * scale);
+          ctx2d.moveTo(sx * scale, baseY * scale);
+          ctx2d.lineTo(ex * scale, (baseY + halfH) * scale);
+        } else {
+          ctx2d.moveTo(sx * scale, (baseY - halfH) * scale);
+          ctx2d.lineTo(ex * scale, baseY * scale);
+          ctx2d.moveTo(sx * scale, (baseY + halfH) * scale);
+          ctx2d.lineTo(ex * scale, baseY * scale);
+        }
+        ctx2d.stroke();
+        ctx2d.restore();
+      });
+    });
+  }
+
   return layout;
 }
