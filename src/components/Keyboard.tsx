@@ -61,24 +61,53 @@ export function Keyboard({
   const callbacksRef = React.useRef({ onNoteOn, onNoteOff, latchMode, activeNotes, keyToPitch });
   callbacksRef.current = { onNoteOn, onNoteOff, latchMode, activeNotes, keyToPitch };
 
-  // Touch: tracks which pitch is currently active under the sliding finger
-  const touchPitchRef = useRef<string | null>(null);
+  // Multi-touch: maps touch.identifier → currently active pitch for that finger
+  const touchMapRef = useRef<Map<number, string>>(new Map());
 
-  const handleTouchNote = useCallback((touch: Touch) => {
+  const getPitchFromTouch = useCallback((touch: Touch): string | undefined => {
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
-    const pitch = (el as HTMLElement | null)?.dataset?.pitch
+    return (el as HTMLElement | null)?.dataset?.pitch
       ?? (el?.closest('[data-pitch]') as HTMLElement | null)?.dataset?.pitch;
-    if (!pitch) return;
-    const { onNoteOn, onNoteOff, latchMode, activeNotes } = callbacksRef.current;
-    if (pitch === touchPitchRef.current) return;
-    if (touchPitchRef.current && !latchMode) onNoteOff(touchPitchRef.current);
-    touchPitchRef.current = pitch;
-    if (latchMode && activeNotes.has(pitch)) {
-      onNoteOff(pitch);
-      touchPitchRef.current = null;
-    } else {
-      onNoteOn(pitch);
-    }
+  }, []);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    Array.from<Touch>(e.changedTouches).forEach(touch => {
+      const pitch = getPitchFromTouch(touch);
+      if (!pitch) return;
+      const { onNoteOn, onNoteOff, latchMode, activeNotes } = callbacksRef.current;
+      touchMapRef.current.set(touch.identifier, pitch);
+      if (latchMode && (activeNotes.has(pitch) || audio.realtimeNotes.has(pitch))) {
+        onNoteOff(pitch);
+        touchMapRef.current.delete(touch.identifier);
+      } else {
+        onNoteOn(pitch);
+      }
+    });
+  }, [getPitchFromTouch]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    Array.from<Touch>(e.changedTouches).forEach(touch => {
+      const newPitch = getPitchFromTouch(touch);
+      const prevPitch = touchMapRef.current.get(touch.identifier);
+      if (!newPitch || newPitch === prevPitch) return;
+      const { onNoteOn, onNoteOff, latchMode } = callbacksRef.current;
+      if (prevPitch && !latchMode) onNoteOff(prevPitch);
+      touchMapRef.current.set(touch.identifier, newPitch);
+      if (!latchMode) onNoteOn(newPitch);
+    });
+  }, [getPitchFromTouch]);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    Array.from<Touch>(e.changedTouches).forEach(touch => {
+      const pitch = touchMapRef.current.get(touch.identifier);
+      if (pitch && !callbacksRef.current.latchMode) {
+        callbacksRef.current.onNoteOff(pitch);
+      }
+      touchMapRef.current.delete(touch.identifier);
+    });
   }, []);
 
   // Handle QWERTY input
@@ -199,15 +228,9 @@ export function Keyboard({
         <div
           className="relative flex min-w-max h-full px-2 mt-2"
           style={{ touchAction: 'none' }}
-          onTouchStart={e => { e.preventDefault(); handleTouchNote(e.touches[0]); }}
-          onTouchMove={e => { e.preventDefault(); handleTouchNote(e.touches[0]); }}
-          onTouchEnd={e => {
-            e.preventDefault();
-            if (touchPitchRef.current && !callbacksRef.current.latchMode) {
-              callbacksRef.current.onNoteOff(touchPitchRef.current);
-              touchPitchRef.current = null;
-            }
-          }}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
         >
           {PIANO_KEYS.map((key, i) => {
             const isWhite = key.color === 'white';

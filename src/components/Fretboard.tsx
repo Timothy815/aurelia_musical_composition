@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { Note } from '@tonaljs/tonal';
 import { cn } from '../lib/utils';
 
@@ -24,6 +24,58 @@ const COLORS = ['#D4AF37', '#FF6B6B', '#4D96FF', '#6BFF8E', '#B76BFF', '#FFB05C'
 export function Fretboard({ activeNotes, onNoteOn, onNoteOff, latchMode }: FretboardProps) {
   const [fretPosition, setFretPosition] = useState<number | 'all'>('all');
   const [fretSpan, setFretSpan] = useState<number>(4);
+
+  // Multi-touch: maps touch.identifier → currently active pitch for that finger
+  const touchMapRef = useRef<Map<number, string>>(new Map());
+  const callbacksRef = useRef({ onNoteOn, onNoteOff, latchMode, activeNotes });
+  callbacksRef.current = { onNoteOn, onNoteOff, latchMode, activeNotes };
+
+  const getPitchFromTouch = useCallback((touch: Touch): string | undefined => {
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    return (el as HTMLElement | null)?.dataset?.pitch
+      ?? (el?.closest('[data-pitch]') as HTMLElement | null)?.dataset?.pitch;
+  }, []);
+
+  const handleFretTouchStart = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    Array.from<Touch>(e.changedTouches).forEach(touch => {
+      const pitch = getPitchFromTouch(touch);
+      if (!pitch) return;
+      const { onNoteOn, onNoteOff, latchMode, activeNotes } = callbacksRef.current;
+      const midi = Note.midi(pitch);
+      touchMapRef.current.set(touch.identifier, pitch);
+      if (latchMode && midi !== null && activeNotes.has(pitch)) {
+        onNoteOff(pitch);
+        touchMapRef.current.delete(touch.identifier);
+      } else {
+        onNoteOn(pitch);
+      }
+    });
+  }, [getPitchFromTouch]);
+
+  const handleFretTouchMove = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    Array.from<Touch>(e.changedTouches).forEach(touch => {
+      const newPitch = getPitchFromTouch(touch);
+      const prevPitch = touchMapRef.current.get(touch.identifier);
+      if (!newPitch || newPitch === prevPitch) return;
+      const { onNoteOn, onNoteOff, latchMode } = callbacksRef.current;
+      if (prevPitch && !latchMode) onNoteOff(prevPitch);
+      touchMapRef.current.set(touch.identifier, newPitch);
+      if (!latchMode) onNoteOn(newPitch);
+    });
+  }, [getPitchFromTouch]);
+
+  const handleFretTouchEnd = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    Array.from<Touch>(e.changedTouches).forEach(touch => {
+      const pitch = touchMapRef.current.get(touch.identifier);
+      if (pitch && !callbacksRef.current.latchMode) {
+        callbacksRef.current.onNoteOff(pitch);
+      }
+      touchMapRef.current.delete(touch.identifier);
+    });
+  }, []);
 
   const activeMidis = useMemo(
     () => new Set(Array.from(activeNotes).map(n => Note.midi(n)).filter((n): n is number => n !== null)),
@@ -147,7 +199,13 @@ export function Fretboard({ activeNotes, onNoteOn, onNoteOff, latchMode }: Fretb
       </div>
 
       <div className="w-full flex justify-start py-6 px-4 overflow-x-auto custom-scrollbar select-none min-h-[220px]">
-        <div className="relative flex flex-col pt-4 min-w-max mx-auto">
+        <div
+          className="relative flex flex-col pt-4 min-w-max mx-auto"
+          style={{ touchAction: 'none' }}
+          onTouchStart={handleFretTouchStart}
+          onTouchMove={handleFretTouchMove}
+          onTouchEnd={handleFretTouchEnd}
+        >
           {/* Fret lines & markers */}
           <div className="absolute inset-0 pointer-events-none flex z-0">
             <div className="w-[44px]" />
@@ -198,13 +256,14 @@ export function Fretboard({ activeNotes, onNoteOn, onNoteOff, latchMode }: Fretb
 
               return (
                 <div key={sIndex} className="flex items-center">
-                  {/* Nut / open string — click to play */}
+                  {/* Nut / open string — click or touch to play */}
                   <div
                     className={cn(
                       'w-[44px] flex items-center justify-center cursor-pointer border-r-[4px] border-[#a1a1a1] h-8 relative shrink-0',
                       'hover:bg-[#1e1e20] transition-colors',
                       isMuted ? 'bg-[#110000]' : 'bg-[#111]',
                     )}
+                    data-pitch={Note.fromMidi(str.tune) ?? undefined}
                     onMouseDown={() => {
                       const pname = Note.fromMidi(str.tune);
                       if (!pname) return;
@@ -218,20 +277,6 @@ export function Fretboard({ activeNotes, onNoteOn, onNoteOff, latchMode }: Fretb
                       }
                     }}
                     onMouseLeave={() => {
-                      if (!latchMode) {
-                        const pname = Note.fromMidi(str.tune);
-                        if (pname) onNoteOff(pname);
-                      }
-                    }}
-                    onTouchStart={e => {
-                      e.preventDefault();
-                      const pname = Note.fromMidi(str.tune);
-                      if (!pname) return;
-                      if (latchMode && activeMidis.has(str.tune)) onNoteOff(pname);
-                      else onNoteOn(pname);
-                    }}
-                    onTouchEnd={e => {
-                      e.preventDefault();
                       if (!latchMode) {
                         const pname = Note.fromMidi(str.tune);
                         if (pname) onNoteOff(pname);
@@ -289,6 +334,7 @@ export function Fretboard({ activeNotes, onNoteOn, onNoteOff, latchMode }: Fretb
                           !inZone && fretPosition !== 'all' ? 'opacity-30 mix-blend-luminosity hover:opacity-80' : '',
                         )}
                         style={{ minWidth: '60px', height: '32px' }}
+                        data-pitch={pitchName ?? undefined}
                         onMouseDown={() => {
                           if (!pitchName) return;
                           if (latchMode && activeMidis.has(midi)) onNoteOff(pitchName);
@@ -302,16 +348,6 @@ export function Fretboard({ activeNotes, onNoteOn, onNoteOff, latchMode }: Fretb
                         }}
                         onMouseUp={() => { if (!latchMode && pitchName) onNoteOff(pitchName); }}
                         onMouseLeave={() => { if (!latchMode && pitchName) onNoteOff(pitchName); }}
-                        onTouchStart={e => {
-                          e.preventDefault();
-                          if (!pitchName) return;
-                          if (latchMode && activeMidis.has(midi)) onNoteOff(pitchName);
-                          else onNoteOn(pitchName);
-                        }}
-                        onTouchEnd={e => {
-                          e.preventDefault();
-                          if (!latchMode && pitchName) onNoteOff(pitchName);
-                        }}
                       >
                         {/* String line */}
                         <div
