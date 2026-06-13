@@ -1017,6 +1017,30 @@ export function renderNotationToCanvas(
     });
   });
 
+  // Lyrics below each track's stave
+  song.tracks.forEach((track, tIndex) => {
+    const seen = new Set<number>();
+    track.notes.forEach(note => {
+      if (note.isRest || !note.lyric || seen.has(note.start)) return;
+      seen.add(note.start);
+      const mIdx = Math.floor(note.start / beatsPerMeasure);
+      const rowIdx = Math.floor(mIdx / measuresPerRow);
+      if (rowIdx < startRow || rowIdx >= endRow) return;
+      const adjustedRowIdx = rowIdx - startRow;
+      const colIdx = mIdx % measuresPerRow;
+      const beatInM = note.start - mIdx * beatsPerMeasure;
+      const noteX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInM * PIXELS_PER_BEAT;
+      const staveY = adjustedRowIdx * rowHeight + trackYOffsets[tIndex] + STAVE_Y_FIRST;
+      ctx2d.save();
+      ctx2d.font = `italic ${10 * scale}px Times New Roman, serif`;
+      ctx2d.fillStyle = '#333333';
+      ctx2d.textAlign = 'center';
+      ctx2d.textBaseline = 'top';
+      ctx2d.fillText(note.lyric, noteX * scale, (staveY + 85) * scale);
+      ctx2d.restore();
+    });
+  });
+
   // Tempo change labels
   if (song.tempoChanges?.length) {
     song.tempoChanges.forEach(tc => {

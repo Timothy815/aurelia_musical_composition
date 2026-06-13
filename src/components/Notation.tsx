@@ -722,10 +722,13 @@ export function Notation({
 
         {/* Lyrics below each track's stave */}
         {song.tracks.map((track, tIndex) => {
-          // Deduplicate: one lyric per beat position per track
           const seen = new Set<number>();
           return track.notes
-            .filter(n => !n.isRest && n.lyric && !seen.has(n.start) && !seen.add(n.start))
+            .filter(n => {
+              if (n.isRest || !n.lyric || seen.has(n.start)) return false;
+              seen.add(n.start);
+              return true;
+            })
             .map(note => {
               const mIndex = Math.floor(note.start / beatsPerMeasure);
               const rowIdx = Math.floor(mIndex / measuresPerRow);
@@ -733,14 +736,15 @@ export function Notation({
               if (rowIdx >= numRows) return null;
               const beatInMeasure = note.start - mIndex * beatsPerMeasure;
               const x = P8 + getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT;
-              const y = P8 + rowIdx * rowHeight + pgGap(rowIdx) + trackYOffsets[tIndex] + STAVE_Y_FIRST + 52;
+              // 85px below the stave top = ~45px below the bottom staff line, below typical ledger notes
+              const y = P8 + rowIdx * rowHeight + pgGap(rowIdx) + trackYOffsets[tIndex] + STAVE_Y_FIRST + 85;
               return (
                 <div
                   key={`lyric-${note.id}`}
                   className="absolute z-20 pointer-events-none select-none"
                   style={{ left: x, top: y, transform: 'translateX(-50%)' }}
                 >
-                  <span className="text-[11px] font-serif italic text-[#C8C8D0]/80 whitespace-nowrap leading-none">
+                  <span className="text-[11px] font-serif italic text-[#C8C8D0] whitespace-nowrap leading-none">
                     {note.lyric}
                   </span>
                 </div>
