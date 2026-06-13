@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus, Copy } from 'lucide-react';
-import { SongData, NoteData, InstrumentPreset, DynamicMarking, ArticulationMarking, EffectsSettings, HairpinData, VoltaData } from '../types';
+import { SongData, NoteData, InstrumentPreset, DynamicMarking, ArticulationMarking, EffectsSettings, HairpinData, VoltaData, SlurData, RehearsalMark, PedalMark, OttavaData } from '../types';
 import { cn, generateId } from '../lib/utils';
 import { audio } from '../lib/audio';
 import { INSTRUMENT_LABELS, TRACK_COLORS } from '../lib/constants';
@@ -66,6 +66,12 @@ interface LeftSidebarPanelProps {
   setNewVoltaEnd: (v: string) => void;
   newVoltaNumber: 1 | 2 | 3;
   setNewVoltaNumber: (v: 1 | 2 | 3) => void;
+  showRehearsalMarks: boolean;
+  setShowRehearsalMarks: React.Dispatch<React.SetStateAction<boolean>>;
+  newRehearsalMeasure: string;
+  setNewRehearsalMeasure: (v: string) => void;
+  newRehearsalText: string;
+  setNewRehearsalText: (v: string) => void;
 }
 
 function FxSlider({ label, min, max, step = 0.01, value, onChange }: {
@@ -135,6 +141,7 @@ export function LeftSidebarPanel({
   showTempoChanges, setShowTempoChanges, newTcMeasure, setNewTcMeasure, newTcBpm, setNewTcBpm,
   showRepeats, setShowRepeats, newRepeatMeasure, setNewRepeatMeasure, newRepeatType, setNewRepeatType,
   showVoltas, setShowVoltas, newVoltaStart, setNewVoltaStart, newVoltaEnd, setNewVoltaEnd, newVoltaNumber, setNewVoltaNumber,
+  showRehearsalMarks, setShowRehearsalMarks, newRehearsalMeasure, setNewRehearsalMeasure, newRehearsalText, setNewRehearsalText,
 }: LeftSidebarPanelProps) {
   const updateFx = <K extends keyof EffectsSettings>(key: K, patch: Partial<EffectsSettings[K]>) =>
     setEffectsSettings(s => ({ ...s, [key]: { ...s[key], ...patch } }));
@@ -378,6 +385,158 @@ export function LeftSidebarPanel({
                     onClick={removeHairpin}
                     className="px-1.5 py-1.5 text-red-500 hover:text-red-400 text-[10px] rounded border border-[#222] hover:border-red-800 bg-[#151517] transition-colors"
                     title="Remove hairpin"
+                  >✕</button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Slurs — only in score mode when notes are selected */}
+        {!playMode && selectedNoteIds.size > 0 && (() => {
+          const selectedNotes = song.tracks.flatMap(t => t.notes).filter(n => selectedNoteIds.has(n.id) && !n.isRest);
+          if (selectedNotes.length === 0) return null;
+          const minBeat = Math.min(...selectedNotes.map(n => n.start));
+          const maxBeat = Math.max(...selectedNotes.map(n => n.start + n.duration));
+          const existingSlur = (song.slurs ?? []).find(s =>
+            s.trackIndex === activeTrackIndex &&
+            Math.abs(s.startBeat - minBeat) < 0.01 && Math.abs(s.endBeat - maxBeat) < 0.01
+          );
+          const addSlur = () => {
+            setSong(prev => {
+              const filtered = (prev.slurs ?? []).filter(s =>
+                !(s.trackIndex === activeTrackIndex && Math.abs(s.startBeat - minBeat) < 0.01 && Math.abs(s.endBeat - maxBeat) < 0.01)
+              );
+              return { ...prev, slurs: [...filtered, { id: generateId(), startBeat: minBeat, endBeat: maxBeat, trackIndex: activeTrackIndex }] };
+            });
+          };
+          const removeSlur = () => {
+            setSong(prev => ({
+              ...prev,
+              slurs: (prev.slurs ?? []).filter(s =>
+                !(s.trackIndex === activeTrackIndex && Math.abs(s.startBeat - minBeat) < 0.01 && Math.abs(s.endBeat - maxBeat) < 0.01)
+              )
+            }));
+          };
+          return (
+            <div className="mt-3">
+              <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-1.5">Slur</h2>
+              <div className="flex gap-1 items-center">
+                <button
+                  onClick={addSlur}
+                  className={cn("flex-1 bg-[#151517] border p-1.5 flex items-center justify-center cursor-pointer transition-colors select-none rounded text-xs",
+                    existingSlur ? "border-[#88AABB] text-[#88AABB]" : "border-[#222] hover:border-[#88AABB] text-[#D1D1D1]"
+                  )}
+                  title="Add slur"
+                >Slur</button>
+                {existingSlur && (
+                  <button
+                    onClick={removeSlur}
+                    className="px-1.5 py-1.5 text-red-500 hover:text-red-400 text-[10px] rounded border border-[#222] hover:border-red-800 bg-[#151517] transition-colors"
+                    title="Remove slur"
+                  >✕</button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Pedal — only for piano tracks in score mode when notes are selected */}
+        {!playMode && selectedNoteIds.size > 0 && song.tracks[activeTrackIndex]?.instrument === 'piano' && (() => {
+          const selectedNotes = song.tracks.flatMap(t => t.notes).filter(n => selectedNoteIds.has(n.id) && !n.isRest);
+          if (selectedNotes.length === 0) return null;
+          const minBeat = Math.min(...selectedNotes.map(n => n.start));
+          const maxBeat = Math.max(...selectedNotes.map(n => n.start + n.duration));
+          const existingPedal = (song.pedalMarks ?? []).find(p =>
+            Math.abs(p.startBeat - minBeat) < 0.01 && Math.abs(p.endBeat - maxBeat) < 0.01
+          );
+          const addPedal = () => {
+            setSong(prev => {
+              const filtered = (prev.pedalMarks ?? []).filter(p =>
+                !(Math.abs(p.startBeat - minBeat) < 0.01 && Math.abs(p.endBeat - maxBeat) < 0.01)
+              );
+              return { ...prev, pedalMarks: [...filtered, { id: generateId(), startBeat: minBeat, endBeat: maxBeat }] };
+            });
+          };
+          const removePedal = () => {
+            setSong(prev => ({
+              ...prev,
+              pedalMarks: (prev.pedalMarks ?? []).filter(p =>
+                !(Math.abs(p.startBeat - minBeat) < 0.01 && Math.abs(p.endBeat - maxBeat) < 0.01)
+              )
+            }));
+          };
+          return (
+            <div className="mt-3">
+              <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-1.5">Pedal</h2>
+              <div className="flex gap-1 items-center">
+                <button
+                  onClick={addPedal}
+                  className={cn("flex-1 bg-[#151517] border p-1.5 flex items-center justify-center cursor-pointer transition-colors select-none rounded text-xs",
+                    existingPedal ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
+                  )}
+                  title="Add pedal mark"
+                >Ped ↓</button>
+                {existingPedal && (
+                  <button
+                    onClick={removePedal}
+                    className="px-1.5 py-1.5 text-red-500 hover:text-red-400 text-[10px] rounded border border-[#222] hover:border-red-800 bg-[#151517] transition-colors"
+                    title="Remove pedal mark"
+                  >✕</button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Ottava — only in score mode when notes are selected */}
+        {!playMode && selectedNoteIds.size > 0 && (() => {
+          const selectedNotes = song.tracks.flatMap(t => t.notes).filter(n => selectedNoteIds.has(n.id) && !n.isRest);
+          if (selectedNotes.length === 0) return null;
+          const minBeat = Math.min(...selectedNotes.map(n => n.start));
+          const maxBeat = Math.max(...selectedNotes.map(n => n.start + n.duration));
+          const existing8va = (song.ottava ?? []).find(o => o.type === '8va' && Math.abs(o.startBeat - minBeat) < 0.01 && Math.abs(o.endBeat - maxBeat) < 0.01);
+          const existing8vb = (song.ottava ?? []).find(o => o.type === '8vb' && Math.abs(o.startBeat - minBeat) < 0.01 && Math.abs(o.endBeat - maxBeat) < 0.01);
+          const existingOttava = existing8va ?? existing8vb;
+          const addOttava = (type: OttavaData['type']) => {
+            setSong(prev => {
+              const filtered = (prev.ottava ?? []).filter(o =>
+                !(Math.abs(o.startBeat - minBeat) < 0.01 && Math.abs(o.endBeat - maxBeat) < 0.01)
+              );
+              return { ...prev, ottava: [...filtered, { id: generateId(), startBeat: minBeat, endBeat: maxBeat, type }] };
+            });
+          };
+          const removeOttava = () => {
+            setSong(prev => ({
+              ...prev,
+              ottava: (prev.ottava ?? []).filter(o =>
+                !(Math.abs(o.startBeat - minBeat) < 0.01 && Math.abs(o.endBeat - maxBeat) < 0.01)
+              )
+            }));
+          };
+          return (
+            <div className="mt-3">
+              <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-1.5">Ottava</h2>
+              <div className="flex gap-1 items-center">
+                <button
+                  onClick={() => addOttava('8va')}
+                  className={cn("flex-1 bg-[#151517] border p-1.5 flex items-center justify-center cursor-pointer transition-colors select-none rounded text-xs",
+                    existing8va ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
+                  )}
+                  title="8va (octave up)"
+                >8va</button>
+                <button
+                  onClick={() => addOttava('8vb')}
+                  className={cn("flex-1 bg-[#151517] border p-1.5 flex items-center justify-center cursor-pointer transition-colors select-none rounded text-xs",
+                    existing8vb ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
+                  )}
+                  title="8vb (octave down)"
+                >8vb</button>
+                {existingOttava && (
+                  <button
+                    onClick={removeOttava}
+                    className="px-1.5 py-1.5 text-red-500 hover:text-red-400 text-[10px] rounded border border-[#222] hover:border-red-800 bg-[#151517] transition-colors"
+                    title="Remove ottava"
                   >✕</button>
                 )}
               </div>
@@ -885,6 +1044,59 @@ export function LeftSidebarPanel({
                     ...s,
                     voltas: [...(s.voltas ?? []), { id: generateId(), startMeasure: start, endMeasure: end, number: newVoltaNumber }]
                       .sort((a, b) => a.startMeasure - b.startMeasure)
+                  }));
+                }}
+                className="ml-auto text-[9px] px-2 py-0.5 rounded bg-[#1A1A1C] border border-[#2A2A2D] text-[#8E8E93] hover:text-white hover:border-[#444] transition-colors"
+              >Add</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Rehearsal Marks */}
+      <div className="border-t border-[#1F1F21] shrink-0">
+        <div className="px-4 pt-3 pb-2">
+          <button className="flex justify-between items-center w-full" onClick={() => setShowRehearsalMarks(v => !v)}>
+            <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666]">Rehearsal Marks</h2>
+            <span className="text-[#555] text-[10px]">{showRehearsalMarks ? '▲' : '▼'}</span>
+          </button>
+        </div>
+        {showRehearsalMarks && (
+          <div className="px-4 pb-3 space-y-2">
+            {(song.rehearsalMarks ?? []).length === 0 && (
+              <p className="text-[9px] text-[#444] italic">No rehearsal marks added.</p>
+            )}
+            {(song.rehearsalMarks ?? []).sort((a, b) => a.measure - b.measure).map((rm, idx) => (
+              <div key={rm.id} className="flex items-center justify-between gap-2 text-[9px] text-[#8E8E93]">
+                <span>M{rm.measure} <span className="text-[#E8E8F0] font-bold font-mono">[{rm.text}]</span></span>
+                <button
+                  onClick={() => setSong(s => ({ ...s, rehearsalMarks: (s.rehearsalMarks ?? []).filter((_, i) => i !== idx) }))}
+                  className="text-red-500 hover:text-red-400 px-1"
+                >✕</button>
+              </div>
+            ))}
+            <div className="flex items-center gap-1 pt-1 border-t border-[#151517]">
+              <span className="text-[8px] text-[#444] shrink-0">M</span>
+              <input
+                type="number" min={1} value={newRehearsalMeasure}
+                onChange={e => setNewRehearsalMeasure(e.target.value)}
+                className="w-10 bg-[#0F0F10] border border-[#222] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none"
+              />
+              <input
+                type="text" value={newRehearsalText}
+                onChange={e => setNewRehearsalText(e.target.value)}
+                placeholder="A, Verse…"
+                className="flex-1 bg-[#0F0F10] border border-[#222] rounded text-[9px] text-[#8E8E93] px-1 py-0.5 outline-none"
+              />
+              <button
+                onClick={() => {
+                  const measure = Math.max(1, parseInt(newRehearsalMeasure) || 1);
+                  const text = newRehearsalText.trim();
+                  if (!text) return;
+                  setSong(s => ({
+                    ...s,
+                    rehearsalMarks: [...(s.rehearsalMarks ?? []).filter(rm => rm.measure !== measure), { id: generateId(), measure, text }]
+                      .sort((a, b) => a.measure - b.measure)
                   }));
                 }}
                 className="ml-auto text-[9px] px-2 py-0.5 rounded bg-[#1A1A1C] border border-[#2A2A2D] text-[#8E8E93] hover:text-white hover:border-[#444] transition-colors"

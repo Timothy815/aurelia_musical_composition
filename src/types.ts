@@ -54,6 +54,32 @@ export interface VoltaData {
   number: 1 | 2 | 3;
 }
 
+export interface SlurData {
+  id: string;
+  startBeat: number;  // beat where slur starts
+  endBeat: number;    // beat where slur ends
+  trackIndex: number; // which track this slur belongs to
+}
+
+export interface RehearsalMark {
+  id: string;
+  measure: number; // 1-based measure number
+  text: string;    // e.g. "A", "B", "Verse", "Chorus"
+}
+
+export interface PedalMark {
+  id: string;
+  startBeat: number;
+  endBeat: number;
+}
+
+export interface OttavaData {
+  id: string;
+  startBeat: number;
+  endBeat: number;
+  type: '8va' | '8vb';
+}
+
 export interface SongData {
   title?: string;
   composer?: string;
@@ -66,6 +92,10 @@ export interface SongData {
   chordSymbols?: Record<string, string>; // beat key (beat.toFixed(3)) → chord name override
   hairpins?: HairpinData[];
   voltas?: VoltaData[];
+  slurs?: SlurData[];
+  rehearsalMarks?: RehearsalMark[];
+  pedalMarks?: PedalMark[];
+  ottava?: OttavaData[];
 }
 
 export type InputMode = 'compose' | 'chord_builder';

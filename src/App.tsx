@@ -61,6 +61,9 @@ export default function App() {
   const [newVoltaStart, setNewVoltaStart] = useState('1');
   const [newVoltaEnd, setNewVoltaEnd] = useState('1');
   const [newVoltaNumber, setNewVoltaNumber] = useState<1 | 2 | 3>(1);
+  const [showRehearsalMarks, setShowRehearsalMarks] = useState(false);
+  const [newRehearsalMeasure, setNewRehearsalMeasure] = useState('1');
+  const [newRehearsalText, setNewRehearsalText] = useState('');
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
   const [playheadBeat, setPlayheadBeat] = useState(-1);
@@ -1049,6 +1052,12 @@ export default function App() {
           setNewVoltaEnd={setNewVoltaEnd}
           newVoltaNumber={newVoltaNumber}
           setNewVoltaNumber={setNewVoltaNumber}
+          showRehearsalMarks={showRehearsalMarks}
+          setShowRehearsalMarks={setShowRehearsalMarks}
+          newRehearsalMeasure={newRehearsalMeasure}
+          setNewRehearsalMeasure={setNewRehearsalMeasure}
+          newRehearsalText={newRehearsalText}
+          setNewRehearsalText={setNewRehearsalText}
         />
 
         {!showSidebar && (

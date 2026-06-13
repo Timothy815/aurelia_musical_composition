@@ -980,6 +980,193 @@ export function Notation({
           return elements;
         })}
 
+        {/* Slur arcs */}
+        {(song.slurs ?? []).map(slur => {
+          const beatToRowX = (beat: number) => {
+            const mIdx = Math.floor(beat / beatsPerMeasure);
+            const cIdx = mIdx % measuresPerRow;
+            const beatInMeasure = beat - mIdx * beatsPerMeasure;
+            return {
+              x: P8 + getMeasureNoteStartX(cIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT,
+              rowIdx: Math.floor(mIdx / measuresPerRow),
+            };
+          };
+          const { x: x1, rowIdx: r1 } = beatToRowX(slur.startBeat);
+          const { x: x2, rowIdx: r2 } = beatToRowX(slur.endBeat);
+          const rows = Array.from({ length: r2 - r1 + 1 }, (_, i) => r1 + i);
+          const trackY = trackYOffsets[slur.trackIndex] ?? 0;
+          return rows.map(rowIdx => {
+            if (rowIdx >= numRows) return null;
+            const rowStartBeat = rowIdx * measuresPerRow * beatsPerMeasure;
+            const rowEndBeat = rowStartBeat + measuresPerRow * beatsPerMeasure;
+            const clampedStart = Math.max(slur.startBeat, rowStartBeat);
+            const clampedEnd = Math.min(slur.endBeat, rowEndBeat);
+            if (clampedStart >= clampedEnd) return null;
+            const { x: sx } = beatToRowX(clampedStart);
+            const { x: ex } = beatToRowX(clampedEnd);
+            const baseY = P8 + rowIdx * rowHeight + pgGap(rowIdx) + STAVE_Y_FIRST + trackY - 5;
+            const w = Math.max(ex - sx, 2);
+            const h = 14;
+            return (
+              <svg
+                key={`slur-${slur.id}-r${rowIdx}`}
+                className="absolute z-15 pointer-events-none"
+                style={{ left: sx, top: baseY, width: w, height: h }}
+                viewBox={`0 0 ${w} ${h}`}
+                preserveAspectRatio="none"
+              >
+                <path
+                  d={`M 0 0 Q ${w / 2} ${h} ${w} 0`}
+                  fill="none"
+                  stroke="rgba(136,170,187,0.75)"
+                  strokeWidth={1.5}
+                />
+              </svg>
+            );
+          });
+        })}
+
+        {/* Rehearsal marks */}
+        {(song.rehearsalMarks ?? []).map(rm => {
+          const measureIdx = rm.measure - 1; // 0-based
+          if (measureIdx < 0 || measureIdx >= totalMeasures) return null;
+          const rowIdx = measuresPerRow > 0 ? Math.floor(measureIdx / measuresPerRow) : 0;
+          const colIdx = measuresPerRow > 0 ? measureIdx % measuresPerRow : 0;
+          const x = P8 + getMeasureStaveX(colIdx, notesWidthPerMeasure) - 4;
+          const y = P8 + rowIdx * rowHeight + pgGap(rowIdx) + STAVE_Y_FIRST - 28;
+          return (
+            <div
+              key={rm.id}
+              className="absolute pointer-events-none z-15"
+              style={{
+                left: x,
+                top: y,
+                padding: '1px 4px',
+                border: '1.5px solid rgba(232,232,240,0.85)',
+                fontSize: 11,
+                fontFamily: 'serif',
+                fontWeight: 'bold',
+                color: 'rgba(232,232,240,0.95)',
+                background: 'rgba(5,5,6,0.7)',
+                lineHeight: 1.2,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {rm.text}
+            </div>
+          );
+        })}
+
+        {/* Pedal marks */}
+        {(song.pedalMarks ?? []).map(pedal => {
+          const beatToRowX = (beat: number) => {
+            const mIdx = Math.floor(beat / beatsPerMeasure);
+            const cIdx = mIdx % measuresPerRow;
+            const beatInMeasure = beat - mIdx * beatsPerMeasure;
+            return {
+              x: P8 + getMeasureNoteStartX(cIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT,
+              rowIdx: Math.floor(mIdx / measuresPerRow),
+            };
+          };
+          const { x: x1, rowIdx: r1 } = beatToRowX(pedal.startBeat);
+          const { x: x2, rowIdx: r2 } = beatToRowX(pedal.endBeat);
+          const rows = Array.from({ length: r2 - r1 + 1 }, (_, i) => r1 + i);
+          // pedal marks go below the bottom track
+          const lastTrackY = trackYOffsets[song.tracks.length - 1] ?? 0;
+          return rows.map(rowIdx => {
+            if (rowIdx >= numRows) return null;
+            const rowStartBeat = rowIdx * measuresPerRow * beatsPerMeasure;
+            const rowEndBeat = rowStartBeat + measuresPerRow * beatsPerMeasure;
+            const clampedStart = Math.max(pedal.startBeat, rowStartBeat);
+            const clampedEnd = Math.min(pedal.endBeat, rowEndBeat);
+            if (clampedStart >= clampedEnd) return null;
+            const { x: sx } = beatToRowX(clampedStart);
+            const { x: ex } = beatToRowX(clampedEnd);
+            const baseY = P8 + rowIdx * rowHeight + pgGap(rowIdx) + STAVE_Y_FIRST + lastTrackY + 50;
+            const w = Math.max(ex - sx, 2);
+            const h = 20;
+            return (
+              <svg
+                key={`pedal-${pedal.id}-r${rowIdx}`}
+                className="absolute z-15 pointer-events-none"
+                style={{ left: sx, top: baseY, width: w, height: h }}
+                viewBox={`0 0 ${w} ${h}`}
+                preserveAspectRatio="none"
+              >
+                {/* Ped symbol on left */}
+                <text x={0} y={12} fontSize={11} fontFamily="serif" fontStyle="italic" fill="rgba(212,175,55,0.85)">Ped</text>
+                {/* line across bottom */}
+                <line x1={0} y1={h - 2} x2={w} y2={h - 2} stroke="rgba(212,175,55,0.6)" strokeWidth={1} />
+                {/* release asterisk on right */}
+                <text x={w} y={12} fontSize={12} textAnchor="end" fill="rgba(212,175,55,0.85)">*</text>
+              </svg>
+            );
+          });
+        })}
+
+        {/* Ottava (8va / 8vb) markings */}
+        {(song.ottava ?? []).map(ott => {
+          const beatToRowX = (beat: number) => {
+            const mIdx = Math.floor(beat / beatsPerMeasure);
+            const cIdx = mIdx % measuresPerRow;
+            const beatInMeasure = beat - mIdx * beatsPerMeasure;
+            return {
+              x: P8 + getMeasureNoteStartX(cIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT,
+              rowIdx: Math.floor(mIdx / measuresPerRow),
+            };
+          };
+          const { x: x1, rowIdx: r1 } = beatToRowX(ott.startBeat);
+          const { x: x2, rowIdx: r2 } = beatToRowX(ott.endBeat);
+          const rows = Array.from({ length: r2 - r1 + 1 }, (_, i) => r1 + i);
+          const isAbove = ott.type === '8va';
+          return rows.map(rowIdx => {
+            if (rowIdx >= numRows) return null;
+            const rowStartBeat = rowIdx * measuresPerRow * beatsPerMeasure;
+            const rowEndBeat = rowStartBeat + measuresPerRow * beatsPerMeasure;
+            const clampedStart = Math.max(ott.startBeat, rowStartBeat);
+            const clampedEnd = Math.min(ott.endBeat, rowEndBeat);
+            if (clampedStart >= clampedEnd) return null;
+            const { x: sx } = beatToRowX(clampedStart);
+            const { x: ex } = beatToRowX(clampedEnd);
+            const baseY = isAbove
+              ? P8 + rowIdx * rowHeight + pgGap(rowIdx) + STAVE_Y_FIRST - 38
+              : P8 + rowIdx * rowHeight + pgGap(rowIdx) + STAVE_Y_FIRST + 55;
+            const w = Math.max(ex - sx, 2);
+            const h = 18;
+            const labelW = 22;
+            const isLastRow = rowIdx === r2;
+            return (
+              <svg
+                key={`ott-${ott.id}-r${rowIdx}`}
+                className="absolute z-15 pointer-events-none"
+                style={{ left: sx, top: baseY, width: w, height: h }}
+                viewBox={`0 0 ${w} ${h}`}
+                preserveAspectRatio="none"
+              >
+                {/* Label */}
+                <text x={0} y={12} fontSize={10} fontFamily="serif" fontStyle="italic" fill="rgba(180,200,255,0.9)">
+                  {ott.type}
+                </text>
+                {/* Dashed line */}
+                <line
+                  x1={labelW} y1={isAbove ? 10 : 6}
+                  x2={w - (isLastRow ? 0 : 0)} y2={isAbove ? 10 : 6}
+                  stroke="rgba(180,200,255,0.7)" strokeWidth={1}
+                  strokeDasharray="4 2"
+                />
+                {/* Vertical drop at end of last segment */}
+                {isLastRow && (
+                  <line
+                    x1={w} y1={isAbove ? 2 : 2}
+                    x2={w} y2={isAbove ? h - 2 : h - 2}
+                    stroke="rgba(180,200,255,0.7)" strokeWidth={1}
+                  />
+                )}
+              </svg>
+            );
+          });
+        })}
+
         {/* Playhead line */}
         {playheadBeat !== undefined && playheadBeat >= 0 && (() => {
           const displayBeat = scrubBeat ?? playheadBeat;

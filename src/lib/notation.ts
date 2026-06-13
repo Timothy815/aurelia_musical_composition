@@ -1268,5 +1268,185 @@ export function renderNotationToCanvas(
     });
   }
 
+  // Draw slur arcs
+  if (song.slurs?.length) {
+    const beatToRowX = (beat: number) => {
+      const mIdx = Math.floor(beat / beatsPerMeasure);
+      const cIdx = mIdx % measuresPerRow;
+      const beatInMeasure = beat - mIdx * beatsPerMeasure;
+      return {
+        x: getMeasureNoteStartX(cIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT,
+        rowIdx: Math.floor(mIdx / measuresPerRow),
+      };
+    };
+    song.slurs.forEach(slur => {
+      const { x: x1, rowIdx: r1 } = beatToRowX(slur.startBeat);
+      const { x: x2, rowIdx: r2 } = beatToRowX(slur.endBeat);
+      const trackY = trackYOffsets[slur.trackIndex] ?? 0;
+      for (let rowIdx = r1; rowIdx <= r2; rowIdx++) {
+        if (rowIdx < startRow || rowIdx >= endRow) continue;
+        const adjustedRowIdx = rowIdx - startRow;
+        const rowStartBeat = rowIdx * measuresPerRow * beatsPerMeasure;
+        const rowEndBeat = rowStartBeat + measuresPerRow * beatsPerMeasure;
+        const clampedStart = Math.max(slur.startBeat, rowStartBeat);
+        const clampedEnd = Math.min(slur.endBeat, rowEndBeat);
+        if (clampedStart >= clampedEnd) continue;
+        const { x: sx } = beatToRowX(clampedStart);
+        const { x: ex } = beatToRowX(clampedEnd);
+        const baseY = adjustedRowIdx * rowHeight + STAVE_Y_FIRST + trackY - 5;
+        const w = Math.max(ex - sx, 2);
+        const h = 14;
+        ctx2d.save();
+        ctx2d.strokeStyle = '#88AABB';
+        ctx2d.lineWidth = 1.5 * scale;
+        ctx2d.globalAlpha = 0.75;
+        ctx2d.beginPath();
+        ctx2d.moveTo(sx * scale, baseY * scale);
+        ctx2d.quadraticCurveTo((sx + w / 2) * scale, (baseY + h) * scale, (sx + w) * scale, baseY * scale);
+        ctx2d.stroke();
+        ctx2d.restore();
+      }
+    });
+  }
+
+  // Draw rehearsal marks
+  if (song.rehearsalMarks?.length) {
+    song.rehearsalMarks.forEach(rm => {
+      const measureIdx = rm.measure - 1;
+      if (measureIdx < 0 || measureIdx >= totalMeasures) return;
+      const rowIdx = measuresPerRow > 0 ? Math.floor(measureIdx / measuresPerRow) : 0;
+      if (rowIdx < startRow || rowIdx >= endRow) return;
+      const adjustedRowIdx = rowIdx - startRow;
+      const colIdx = measuresPerRow > 0 ? measureIdx % measuresPerRow : 0;
+      const x = getMeasureStaveX(colIdx, notesWidthPerMeasure) - 4;
+      const y = adjustedRowIdx * rowHeight + STAVE_Y_FIRST - 28;
+      const pad = 3 * scale;
+      ctx2d.save();
+      ctx2d.font = `bold ${11 * scale}px Times New Roman, serif`;
+      ctx2d.textAlign = 'left';
+      ctx2d.textBaseline = 'top';
+      const textW = ctx2d.measureText(rm.text).width;
+      const boxX = x * scale - pad;
+      const boxY = y * scale - pad;
+      const boxW = textW + pad * 2;
+      const boxH = 13 * scale + pad * 2;
+      ctx2d.globalAlpha = 0.85;
+      ctx2d.fillStyle = '#ffffff';
+      ctx2d.fillRect(boxX, boxY, boxW, boxH);
+      ctx2d.strokeStyle = '#333355';
+      ctx2d.lineWidth = 1.5 * scale;
+      ctx2d.strokeRect(boxX, boxY, boxW, boxH);
+      ctx2d.globalAlpha = 1;
+      ctx2d.fillStyle = '#111122';
+      ctx2d.fillText(rm.text, x * scale, y * scale);
+      ctx2d.restore();
+    });
+  }
+
+  // Draw pedal marks
+  if (song.pedalMarks?.length) {
+    const beatToRowX = (beat: number) => {
+      const mIdx = Math.floor(beat / beatsPerMeasure);
+      const cIdx = mIdx % measuresPerRow;
+      const beatInMeasure = beat - mIdx * beatsPerMeasure;
+      return {
+        x: getMeasureNoteStartX(cIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT,
+        rowIdx: Math.floor(mIdx / measuresPerRow),
+      };
+    };
+    const lastTrackY = trackYOffsets[song.tracks.length - 1] ?? 0;
+    song.pedalMarks.forEach(pedal => {
+      const { x: x1, rowIdx: r1 } = beatToRowX(pedal.startBeat);
+      const { x: x2, rowIdx: r2 } = beatToRowX(pedal.endBeat);
+      for (let rowIdx = r1; rowIdx <= r2; rowIdx++) {
+        if (rowIdx < startRow || rowIdx >= endRow) continue;
+        const adjustedRowIdx = rowIdx - startRow;
+        const rowStartBeat = rowIdx * measuresPerRow * beatsPerMeasure;
+        const rowEndBeat = rowStartBeat + measuresPerRow * beatsPerMeasure;
+        const clampedStart = Math.max(pedal.startBeat, rowStartBeat);
+        const clampedEnd = Math.min(pedal.endBeat, rowEndBeat);
+        if (clampedStart >= clampedEnd) continue;
+        const { x: sx } = beatToRowX(clampedStart);
+        const { x: ex } = beatToRowX(clampedEnd);
+        const baseY = adjustedRowIdx * rowHeight + STAVE_Y_FIRST + lastTrackY + 50;
+        const w = Math.max(ex - sx, 2);
+        ctx2d.save();
+        ctx2d.globalAlpha = 0.85;
+        ctx2d.font = `italic ${11 * scale}px Times New Roman, serif`;
+        ctx2d.fillStyle = '#806000';
+        ctx2d.textAlign = 'left';
+        ctx2d.textBaseline = 'alphabetic';
+        ctx2d.fillText('Ped', sx * scale, (baseY + 12) * scale);
+        ctx2d.font = `${12 * scale}px Times New Roman, serif`;
+        ctx2d.textAlign = 'right';
+        ctx2d.fillText('*', (sx + w) * scale, (baseY + 12) * scale);
+        ctx2d.strokeStyle = '#806000';
+        ctx2d.lineWidth = scale;
+        ctx2d.beginPath();
+        ctx2d.moveTo(sx * scale, (baseY + 18) * scale);
+        ctx2d.lineTo((sx + w) * scale, (baseY + 18) * scale);
+        ctx2d.stroke();
+        ctx2d.restore();
+      }
+    });
+  }
+
+  // Draw ottava (8va / 8vb)
+  if (song.ottava?.length) {
+    const beatToRowX = (beat: number) => {
+      const mIdx = Math.floor(beat / beatsPerMeasure);
+      const cIdx = mIdx % measuresPerRow;
+      const beatInMeasure = beat - mIdx * beatsPerMeasure;
+      return {
+        x: getMeasureNoteStartX(cIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT,
+        rowIdx: Math.floor(mIdx / measuresPerRow),
+      };
+    };
+    song.ottava.forEach(ott => {
+      const { x: x1, rowIdx: r1 } = beatToRowX(ott.startBeat);
+      const { x: x2, rowIdx: r2 } = beatToRowX(ott.endBeat);
+      const isAbove = ott.type === '8va';
+      for (let rowIdx = r1; rowIdx <= r2; rowIdx++) {
+        if (rowIdx < startRow || rowIdx >= endRow) continue;
+        const adjustedRowIdx = rowIdx - startRow;
+        const rowStartBeat = rowIdx * measuresPerRow * beatsPerMeasure;
+        const rowEndBeat = rowStartBeat + measuresPerRow * beatsPerMeasure;
+        const clampedStart = Math.max(ott.startBeat, rowStartBeat);
+        const clampedEnd = Math.min(ott.endBeat, rowEndBeat);
+        if (clampedStart >= clampedEnd) continue;
+        const { x: sx } = beatToRowX(clampedStart);
+        const { x: ex } = beatToRowX(clampedEnd);
+        const lineY = isAbove
+          ? adjustedRowIdx * rowHeight + STAVE_Y_FIRST - 30
+          : adjustedRowIdx * rowHeight + STAVE_Y_FIRST + 63;
+        const labelW = 22;
+        const isLastRow = rowIdx === r2;
+        ctx2d.save();
+        ctx2d.globalAlpha = 0.85;
+        ctx2d.font = `italic ${10 * scale}px Times New Roman, serif`;
+        ctx2d.fillStyle = '#2040A0';
+        ctx2d.textAlign = 'left';
+        ctx2d.textBaseline = 'alphabetic';
+        ctx2d.fillText(ott.type, sx * scale, (lineY + 10) * scale);
+        ctx2d.strokeStyle = '#2040A0';
+        ctx2d.lineWidth = scale;
+        ctx2d.setLineDash([4 * scale, 2 * scale]);
+        ctx2d.beginPath();
+        ctx2d.moveTo((sx + labelW) * scale, lineY * scale);
+        ctx2d.lineTo((sx + Math.max(ex - sx, 2)) * scale, lineY * scale);
+        ctx2d.stroke();
+        ctx2d.setLineDash([]);
+        if (isLastRow) {
+          const dropDir = isAbove ? 1 : -1;
+          ctx2d.beginPath();
+          ctx2d.moveTo((sx + Math.max(ex - sx, 2)) * scale, lineY * scale);
+          ctx2d.lineTo((sx + Math.max(ex - sx, 2)) * scale, (lineY + dropDir * 8) * scale);
+          ctx2d.stroke();
+        }
+        ctx2d.restore();
+      }
+    });
+  }
+
   return layout;
 }
