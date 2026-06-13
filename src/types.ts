@@ -47,6 +47,7 @@ export interface SongData {
   keySignature?: string; // e.g., 'C', 'G', 'F', 'Bb'
   tempoChanges?: TempoChange[];
   repeats?: RepeatMarker[];
+  chordSymbols?: Record<string, string>; // beat key (beat.toFixed(3)) → chord name override
 }
 
 export type InputMode = 'compose' | 'chord_builder';

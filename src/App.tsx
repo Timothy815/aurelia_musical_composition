@@ -624,6 +624,12 @@ export default function App() {
       if (!n.isRest) positions.add(Math.round(n.start * 100) / 100);
     }));
     positions.forEach(beat => {
+      // Check for manual override first
+      const key = beat.toFixed(3);
+      if (song.chordSymbols?.[key]) {
+        map.set(beat, song.chordSymbols[key]);
+        return;
+      }
       const pcs = new Set<string>();
       song.tracks.forEach(t => t.notes.forEach(n => {
         if (!n.isRest && n.start <= beat + 0.001 && n.start + n.duration > beat + 0.001)

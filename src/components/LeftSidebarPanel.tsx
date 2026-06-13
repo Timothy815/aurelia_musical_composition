@@ -333,6 +333,41 @@ export function LeftSidebarPanel({
           );
         })()}
 
+        {/* Chord Symbol override — only in score mode when notes are selected */}
+        {!playMode && selectedNoteIds.size > 0 && (() => {
+          const selectedNotes = song.tracks.flatMap(t => t.notes).filter(n => selectedNoteIds.has(n.id) && !n.isRest);
+          if (selectedNotes.length === 0) return null;
+          const beatPos = Math.min(...selectedNotes.map(n => n.start));
+          const key = beatPos.toFixed(3);
+          const manualSymbol = song.chordSymbols?.[key] ?? '';
+          return (
+            <div className="mt-3">
+              <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-1.5">
+                Chord Symbol
+                {!manualSymbol && <span className="ml-1 text-[#333] normal-case not-italic">(auto)</span>}
+              </h2>
+              <input
+                type="text"
+                value={manualSymbol}
+                onChange={e => {
+                  const val = e.target.value;
+                  setSong(prev => {
+                    const existing = { ...(prev.chordSymbols ?? {}) };
+                    if (val) {
+                      existing[key] = val;
+                    } else {
+                      delete existing[key];
+                    }
+                    return { ...prev, chordSymbols: existing };
+                  });
+                }}
+                placeholder="e.g. Cmaj7, Am, G/B"
+                className="w-full bg-[#151517] border border-[#222] focus:border-[#D4AF37] rounded px-2 py-1.5 text-[11px] text-[#D1D1D1] outline-none placeholder-[#333] transition-colors"
+              />
+            </div>
+          );
+        })()}
+
         <div className="flex gap-2 mt-3">
           <div
             onClick={() => setChordSelectMode(!chordSelectMode)}
