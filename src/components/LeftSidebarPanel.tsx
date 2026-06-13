@@ -291,6 +291,48 @@ export function LeftSidebarPanel({
           </div>
         </div>
 
+        {/* Lyric entry — only visible in score mode when notes are selected */}
+        {!playMode && selectedNoteIds.size > 0 && (() => {
+          const selectedNotes = song.tracks.flatMap(t => t.notes).filter(n => selectedNoteIds.has(n.id) && !n.isRest);
+          if (selectedNotes.length === 0) return null;
+          const currentLyric = selectedNotes[0].lyric ?? '';
+          const beatPos = selectedNotes[0].start;
+          return (
+            <div className="mt-3">
+              <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-1.5">Lyric</h2>
+              <input
+                type="text"
+                value={currentLyric}
+                onChange={e => {
+                  const lyric = e.target.value || undefined;
+                  setSong(prev => ({
+                    ...prev,
+                    tracks: prev.tracks.map(t => ({
+                      ...t,
+                      notes: t.notes.map(n => selectedNoteIds.has(n.id) ? { ...n, lyric } : n),
+                    }))
+                  }));
+                }}
+                onKeyDown={e => {
+                  if (e.key !== ' ' && e.key !== 'Tab') return;
+                  e.preventDefault();
+                  // Advance selection to next note beat
+                  const allNotes = song.tracks.flatMap(t => t.notes)
+                    .filter(n => !n.isRest)
+                    .sort((a, b) => a.start - b.start);
+                  const nextNote = allNotes.find(n => n.start > beatPos + 0.001);
+                  if (!nextNote) return;
+                  const atBeat = allNotes.filter(n => Math.abs(n.start - nextNote.start) < 0.001);
+                  setSelectedNoteIds(new Set(atBeat.map(n => n.id)));
+                }}
+                placeholder="Type syllable, Space → next note"
+                className="w-full bg-[#151517] border border-[#222] focus:border-[#D4AF37] rounded px-2 py-1.5 text-[11px] text-[#D1D1D1] outline-none placeholder-[#333] transition-colors"
+              />
+              <p className="text-[9px] text-[#333] mt-1">Space or Tab advances to next note</p>
+            </div>
+          );
+        })()}
+
         <div className="flex gap-2 mt-3">
           <div
             onClick={() => setChordSelectMode(!chordSelectMode)}

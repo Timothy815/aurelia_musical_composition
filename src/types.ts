@@ -13,6 +13,7 @@ export interface NoteData {
   dynamic?: DynamicMarking;
   articulation?: ArticulationMarking;
   tied?: boolean; // true = this note is tied from the previous same-pitch note
+  lyric?: string; // syllable text displayed below the stave
 }
 
 export interface TrackData {

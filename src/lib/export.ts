@@ -62,6 +62,12 @@ function noteLines(note: NoteData | null, beats: number, divisions: number, isCh
       : '<tenuto/>';
     out.push('        <notations><articulations>' + tag + '</articulations></notations>');
   }
+  if (note?.lyric && !note.isRest) {
+    const text = note.lyric.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const syllabic = text.endsWith('-') ? 'begin' : 'single';
+    const displayText = syllabic === 'begin' ? text.slice(0, -1) : text;
+    out.push(`        <lyric number="1"><syllabic>${syllabic}</syllabic><text>${displayText}</text></lyric>`);
+  }
   out.push('      </note>');
   return out;
 }
