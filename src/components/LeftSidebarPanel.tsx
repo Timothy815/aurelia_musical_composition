@@ -150,6 +150,14 @@ export function LeftSidebarPanel({
           >◀</button>
         </div>
         <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-4">Notation Elements</h2>
+        {/* Compound meter info banner */}
+        {song.timeSignature[1] === 8 && song.timeSignature[0] % 3 === 0 && (
+          <div className="mb-3 px-2 py-1.5 rounded bg-[#1A1A1C] border border-[#2A2A2D] text-[9px] text-[#8E8E93]">
+            <span className="text-[#D4AF37] font-bold">{song.timeSignature[0]}/{song.timeSignature[1]}</span>
+            {' '}compound — felt beat = dotted ♩ (1.5×).
+            Use <span className="text-[#D4AF37]">Dotted</span> + 8th for one beat, + Quarter for a beat‑and‑half.
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-2">
           {[
             { value: 4, label: 'Whole', fraction: '1' },

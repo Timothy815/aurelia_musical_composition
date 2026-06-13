@@ -493,16 +493,22 @@ class AudioEngine {
       this.metronomeLoop = null;
     }
     if (enabled && this.metronomeSynth) {
-      const beatsPerBar = timeSignature[0];
+      // Compound meter detection: denominator=8 and numerator divisible by 3 (6/8, 9/8, 12/8)
+      const [num, denom] = timeSignature;
+      const isCompound = denom === 8 && num % 3 === 0;
+      // In compound meter, felt beats are dotted quarters (= 3 eighth notes = 1.5 quarter beats)
+      // beatsPerBar in felt beats: 6/8→2, 9/8→3, 12/8→4
+      const feltBeatsPerBar = isCompound ? num / 3 : num;
+      const tickInterval = isCompound ? "4n." : "4n";
       let beat = 0;
       this.metronomeLoop = new Tone.Loop((time) => {
-        if (beat % beatsPerBar === 0) {
+        if (beat % feltBeatsPerBar === 0) {
           this.metronomeSynth!.triggerAttackRelease("C6", "32n", time, 1);
         } else {
           this.metronomeSynth!.triggerAttackRelease("G5", "32n", time, 0.5);
         }
         beat++;
-      }, "4n");
+      }, tickInterval);
       this.metronomeLoop.start(0);
     }
   }

@@ -348,13 +348,15 @@ function renderTrackMeasure(
   stave: any,
   fg: string,
   clef: string,
-  tieState: Map<string, any>
+  tieState: Map<string, any>,
+  beamGroupSize?: number
 ) {
   const { notesWidthPerMeasure, measuresPerRow } = layout;
   const colIdx = mIndex % measuresPerRow;
   const mStart = mIndex * beatsPerMeasure;
   const noteStartX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure);
-  const halfMeasure = beatsPerMeasure / 2;
+  // beamGroupSize: dotted quarter (1.5) for compound meters, half measure for simple
+  const halfMeasure = beamGroupSize ?? beatsPerMeasure / 2;
   const hasMultiVoice = segments.some(s => s.notes.some(n => n.voice === 2));
   const beamGroups = new Map<string, any[]>(); // `vKey|halfGroup` → StaveNotes
 
@@ -440,6 +442,11 @@ export function renderNotation(
   const layout = calcLayout(song, width, showGuitarTab, trackHeightOverride);
   const { measuresPerRow, totalMeasures, notesWidthPerMeasure, effectiveTrackHeight, beatsPerMeasure, rowHeight, trackYOffsets, numRows } = layout;
 
+  // Compound meter: beam in dotted-quarter groups (1.5 quarter-beats) instead of half-measure
+  const [tsNum, tsDenom] = song.timeSignature;
+  const isCompound = tsDenom === 8 && tsNum % 3 === 0;
+  const beamGroupSize = isCompound ? 1.5 : undefined;
+
   const numPages = rowsPerPage > 0 ? Math.ceil(numRows / rowsPerPage) : 1;
   const adjustedSvgHeight = layout.svgHeight + (numPages - 1) * interPageGap;
   const rby = (r: number) => rowBaseY(r, rowHeight, rowsPerPage, interPageGap);
@@ -516,9 +523,9 @@ export function renderNotation(
         try { const l = new VF.StaveConnector(stave, bassStave); l.setType((VF.StaveConnector as any).type.SINGLE_LEFT); l.setContext(context).draw(); } catch (_) {}
       }
 
-      renderTrackMeasure(VF, context, trebleSegs.get(mIndex) ?? [], beatsPerMeasure, mIndex, layout, stave, fg, 'treble', trebleTies);
+      renderTrackMeasure(VF, context, trebleSegs.get(mIndex) ?? [], beatsPerMeasure, mIndex, layout, stave, fg, 'treble', trebleTies, beamGroupSize);
       if (track.grandStaff && bassStave) {
-        renderTrackMeasure(VF, context, bassSegs.get(mIndex) ?? [], beatsPerMeasure, mIndex, layout, bassStave, fg, 'bass', bassTies);
+        renderTrackMeasure(VF, context, bassSegs.get(mIndex) ?? [], beatsPerMeasure, mIndex, layout, bassStave, fg, 'bass', bassTies, beamGroupSize);
       }
 
       if (tIndex === 0) {
@@ -843,6 +850,7 @@ export function renderNotationToCanvas(
   const VF = VexFlow;
   const layout = calcLayout(song, pageWidth, showGuitarTab, trackHeightOverride);
   const { measuresPerRow, totalMeasures, numRows, notesWidthPerMeasure, beatsPerMeasure, effectiveTrackHeight, rowHeight, trackYOffsets } = layout;
+  const [tsNum, tsDenom] = song.timeSignature;
 
   const endRow = rowsPerPage !== undefined ? Math.min(startRow + rowsPerPage, numRows) : numRows;
   const rowsOnPage = endRow - startRow;
@@ -957,7 +965,9 @@ export function renderNotationToCanvas(
 
       const mStart = mIndex * beatsPerMeasure;
       const noteStartX = getMeasureNoteStartX(colIdx, notesWidthPerMeasure) * scale;
-      const halfMeasure = beatsPerMeasure / 2;
+      // Use dotted-quarter grouping for compound meters (6/8, 9/8, 12/8)
+      const canvasIsCompound = tsDenom === 8 && tsNum % 3 === 0;
+      const halfMeasure = canvasIsCompound ? 1.5 : beatsPerMeasure / 2;
 
       const renderMeasureOnCanvas = (segs: RenderSeg[], targetStave: any, noteClef: string, tieState: Map<string, any>) => {
         const beamGroups = new Map<string, any[]>();
