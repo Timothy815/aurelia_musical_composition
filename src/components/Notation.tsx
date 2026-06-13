@@ -656,6 +656,30 @@ export function Notation({
           );
         })}
 
+        {/* Score title / composer header — first row only */}
+        {(song.title || song.composer) && (() => {
+          // In page view the first page card starts PAGE_MARGIN_TOP above the grid,
+          // giving us extra vertical breathing room above the stave.
+          const headerTop = pageView
+            ? P8 + STAVE_Y_FIRST - GRID_TOP_OFFSET - PAGE_MARGIN_TOP + 10
+            : P8 + 6;
+          return (
+            <div className="absolute z-[5] pointer-events-none select-none text-center"
+                 style={{ top: headerTop, left: P8, right: 0 }}>
+              {song.title && (
+                <div className="text-[15px] font-serif font-bold tracking-wide text-[#E8E8F0] leading-none">
+                  {song.title}
+                </div>
+              )}
+              {song.composer && (
+                <div className={cn("font-serif text-[#888896] leading-none", song.title ? "text-[10px] mt-1.5" : "text-[12px]")}>
+                  {song.composer}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* VexFlow SVG */}
         <div ref={containerRef} className="absolute top-8 left-8 z-[1] pointer-events-none" />
 

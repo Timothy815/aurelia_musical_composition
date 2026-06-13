@@ -854,6 +854,29 @@ export function renderNotationToCanvas(
   ctx2d.fillStyle = '#ffffff';
   ctx2d.fillRect(0, 0, canvas.width, canvas.height);
 
+  // Title / composer — only on the first page (startRow === 0)
+  if (startRow === 0) {
+    const cx = canvas.width / 2;
+    if (song.title) {
+      ctx2d.save();
+      ctx2d.font = `bold ${14 * scale}px Times New Roman, serif`;
+      ctx2d.fillStyle = '#111111';
+      ctx2d.textAlign = 'center';
+      ctx2d.textBaseline = 'alphabetic';
+      ctx2d.fillText(song.title, cx, 18 * scale);
+      ctx2d.restore();
+    }
+    if (song.composer) {
+      ctx2d.save();
+      ctx2d.font = `${10 * scale}px Times New Roman, serif`;
+      ctx2d.fillStyle = '#444444';
+      ctx2d.textAlign = 'center';
+      ctx2d.textBaseline = 'alphabetic';
+      ctx2d.fillText(song.composer, cx, (song.title ? 30 : 20) * scale);
+      ctx2d.restore();
+    }
+  }
+
   const renderer = new VF.Renderer(canvas, RendererBackends.CANVAS);
   renderer.resize(canvas.width, canvas.height);
   const context = renderer.getContext();
