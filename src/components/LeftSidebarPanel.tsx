@@ -164,7 +164,8 @@ export function LeftSidebarPanel({
             { value: 2, label: 'Half', fraction: '1/2' },
             { value: 1, label: 'Quarter', fraction: '1/4' },
             { value: 0.5, label: '8th', fraction: '1/8' },
-            { value: 0.25, label: '16th', fraction: '1/16' }
+            { value: 0.25, label: '16th', fraction: '1/16' },
+            { value: 0.125, label: '32nd', fraction: '1/32' },
           ].map(dur => (
             <div
               key={dur.value}

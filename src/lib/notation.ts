@@ -184,14 +184,18 @@ export function getMeasureNoteStartX(colIdx: number, notesWidthPerMeasure: numbe
 }
 
 function durToVF(beats: number): string {
-  if (beats >= 4) return 'w';
-  if (beats >= 3) return 'hd';
-  if (beats >= 2) return 'h';
-  if (beats >= 1.5) return 'qd';
-  if (beats >= 1) return 'q';
-  if (beats >= 0.75) return '8d';
-  if (beats >= 0.5) return '8';
-  return '16';
+  if (beats >= 4)      return 'w';
+  if (beats >= 3)      return 'hd';
+  if (beats >= 2)      return 'h';
+  if (beats >= 1.5)    return 'qd';
+  if (beats >= 1)      return 'q';
+  if (beats >= 0.75)   return '8d';
+  if (beats >= 0.5)    return '8';
+  if (beats >= 0.375)  return '16d';
+  if (beats >= 0.25)   return '16';
+  if (beats >= 0.1875) return '32d';
+  if (beats >= 0.125)  return '32';
+  return '64';
 }
 
 function buildStaveNote(VF: any, chordNotes: NoteData[], fg: string, clef = 'treble'): any {
@@ -215,7 +219,7 @@ function buildStaveNote(VF: any, chordNotes: NoteData[], fg: string, clef = 'tre
     });
   }
 
-  if (dur === 1.5 || dur === 0.75 || dur === 3) sn.addModifier(new VF.Dot(), 0);
+  if (dur === 1.5 || dur === 0.75 || dur === 3 || dur === 0.375 || dur === 0.1875) sn.addModifier(new VF.Dot(), 0);
 
   if (!isRest) {
     const articulation = chordNotes[0]?.articulation;
@@ -242,7 +246,7 @@ interface RenderSeg {
   tieToNext: boolean;
 }
 
-const STD_DURS = [4, 3, 2, 1.5, 1, 0.75, 0.5, 0.25];
+const STD_DURS = [4, 3, 2, 1.5, 1, 0.75, 0.5, 0.375, 0.25, 0.1875, 0.125, 0.0625];
 
 function splitToStandardDurations(beats: number): number[] {
   const result: number[] = [];
