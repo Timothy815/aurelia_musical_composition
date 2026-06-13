@@ -225,10 +225,29 @@ function buildStaveNote(VF: any, chordNotes: NoteData[], fg: string, clef = 'tre
     const articulation = chordNotes[0]?.articulation;
     if (articulation) {
       try {
-        const code = articulation === 'staccato' ? 'a.' : articulation === 'accent' ? 'a>' : 'a-';
-        sn.addModifier(new VF.Articulation(code).setPosition(3), 0);
+        const code = articulation === 'staccato' ? 'a.'
+                   : articulation === 'accent'   ? 'a>'
+                   : articulation === 'tenuto'   ? 'a-'
+                   : articulation === 'fermata'  ? 'a@a'
+                   : null;
+        if (code) {
+          sn.addModifier(new VF.Articulation(code).setPosition(3), 0);
+        }
       } catch (_) {}
     }
+  }
+
+  // Grace note rendering
+  const grace = chordNotes[0]?.graceNote;
+  if (grace && !isRest) {
+    try {
+      const gKey = `${grace.pitch.slice(0, -1).toLowerCase()}/${grace.pitch.slice(-1)}`;
+      const gn = new VF.GraceNote({ keys: [gKey], duration: '8', slash: grace.slash });
+      if (gKey.includes('#')) gn.addModifier(new VF.Accidental('#'), 0);
+      else if (gKey.match(/^[a-g]b\//)) gn.addModifier(new VF.Accidental('b'), 0);
+      const graceGroup = new VF.GraceNoteGroup([gn]);
+      sn.addModifier(graceGroup, 0);
+    } catch (_) {}
   }
 
   sn.setStyle({ fillStyle: fg, strokeStyle: fg });
