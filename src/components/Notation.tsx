@@ -784,6 +784,35 @@ export function Notation({
             });
         })}
 
+        {/* Grace note indicators (small notehead before main note) */}
+        {song.tracks.map((track, tIndex) =>
+          track.notes
+            .filter(n => !n.isRest && n.graceNote)
+            .map(note => {
+              const mIndex = Math.floor(note.start / beatsPerMeasure);
+              const rowIdx = Math.floor(mIndex / measuresPerRow);
+              const colIdx = mIndex % measuresPerRow;
+              if (rowIdx >= numRows) return null;
+              const beatInMeasure = note.start - mIndex * beatsPerMeasure;
+              const x = P8 + getMeasureNoteStartX(colIdx, notesWidthPerMeasure) + beatInMeasure * PIXELS_PER_BEAT - 10;
+              const y = P8 + rowIdx * rowHeight + pgGap(rowIdx) + trackYOffsets[tIndex] + STAVE_Y_FIRST - 4;
+              return (
+                <svg
+                  key={`grace-${note.id}`}
+                  className="absolute pointer-events-none"
+                  style={{ left: x - 8, top: y - 6, width: 16, height: 12, overflow: 'visible' }}
+                >
+                  <ellipse cx={8} cy={6} rx={4} ry={3} fill="rgba(180,160,80,0.85)" transform="rotate(-15,8,6)" />
+                  <line x1={12} y1={6} x2={12} y2={-4} stroke="rgba(180,160,80,0.85)" strokeWidth={1} />
+                  {note.graceNote!.slash && (
+                    <line x1={6} y1={2} x2={14} y2={-4} stroke="rgba(180,160,80,0.85)" strokeWidth={1} />
+                  )}
+                  <line x1={12} y1={6} x2={16} y2={6} stroke="rgba(180,160,80,0.7)" strokeWidth={0.8} />
+                </svg>
+              );
+            })
+        )}
+
         {/* Tuplet brackets (e.g. triplet "3") above note groups */}
         {song.tracks.map((track, tIndex) => {
           // Group consecutive notes with matching tuplet into runs

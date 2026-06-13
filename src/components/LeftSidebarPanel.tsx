@@ -18,6 +18,9 @@ interface LeftSidebarPanelProps {
   setIsRest: React.Dispatch<React.SetStateAction<boolean>>;
   tripletMode: boolean;
   setTripletMode: React.Dispatch<React.SetStateAction<boolean>>;
+  graceMode: boolean;
+  setGraceMode: React.Dispatch<React.SetStateAction<boolean>>;
+  pendingGrace: { pitch: string; slash: boolean } | null;
   activeVoice: 1 | 2;
   setActiveVoice: (v: 1 | 2) => void;
   selectedDynamic: DynamicMarking | null;
@@ -116,6 +119,8 @@ export function LeftSidebarPanel({
   isDotted, setIsDotted,
   isRest, setIsRest,
   tripletMode, setTripletMode,
+  graceMode, setGraceMode,
+  pendingGrace,
   activeVoice, setActiveVoice,
   selectedDynamic, setSelectedDynamic,
   selectedArticulation, setSelectedArticulation,
@@ -230,6 +235,13 @@ export function LeftSidebarPanel({
               tripletMode ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
             )}
           >3:2</div>
+          <div
+            onClick={() => setGraceMode(v => !v)}
+            title={pendingGrace ? `Grace: ${pendingGrace.pitch} captured — press Enter for main note` : 'Grace Note: press Enter to capture grace pitch, then Enter again for main note'}
+            className={cn("flex-1 bg-[#151517] border p-2 flex items-center justify-center cursor-pointer transition-colors select-none rounded text-[10px] uppercase tracking-wider font-bold",
+              graceMode ? (pendingGrace ? "border-[#4D96FF] text-[#4D96FF]" : "border-[#D4AF37] text-[#D4AF37]") : "border-[#222] hover:border-[#D4AF37] text-[#D1D1D1]"
+            )}
+          >{pendingGrace ? `♩→` : `Grace`}</div>
         </div>
 
         {/* Voice toggle */}

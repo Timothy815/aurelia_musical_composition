@@ -609,6 +609,17 @@ class AudioEngine {
         const velocity = Math.min(1, baseVel * artVel * hairpinMul * trackVol);
         const playDuration = durationSecs * artDur;
 
+        // Grace note: schedule a short note slightly before the main note
+        if (note.graceNote) {
+          const graceDur = Math.min(0.1, durationSecs * 0.15);
+          const graceStart = Math.max(0, startSec - graceDur);
+          Tone.Transport.schedule((time) => {
+            try {
+              instrument.triggerAttackRelease(note.graceNote!.pitch, graceDur, time, velocity * 0.8);
+            } catch (_) {}
+          }, graceStart);
+        }
+
         Tone.Transport.schedule((time) => {
           try {
             instrument.triggerAttackRelease(note.pitch, playDuration, time, velocity);

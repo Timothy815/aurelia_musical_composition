@@ -27,6 +27,8 @@ export default function App() {
   const [isDotted, setIsDotted] = useState(false);
   const [isRest, setIsRest] = useState(false);
   const [tripletMode, setTripletMode] = useState(false);
+  const [graceMode, setGraceMode] = useState(false); // next append sets graceNote on the following note
+  const [pendingGrace, setPendingGrace] = useState<{ pitch: string; slash: boolean } | null>(null);
   const [chordSelectMode, setChordSelectMode] = useState(false);
   const [harmonyMode, setHarmonyMode] = useState(false);
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
@@ -234,6 +236,15 @@ export default function App() {
     const repeating = activeNotes.size === 0 && !isRest;
     if (repeating && !lastChord) return;
 
+    // Grace note capture: if graceMode active and no pendingGrace yet, capture current notes as grace
+    if (graceMode && !pendingGrace && activeNotes.size > 0) {
+      const pitch = Array.from(activeNotes)[0]; // use first pitch for grace note
+      setPendingGrace({ pitch, slash: true });
+      activeNotes.forEach(p => audio.stopNoteRealtime(p));
+      setActiveNotes(new Set());
+      return;
+    }
+
     let fallbackDuration = selectedDuration;
     if (isDotted) fallbackDuration *= 1.5;
     if (tripletMode) fallbackDuration = fallbackDuration * 2 / 3;
@@ -245,6 +256,7 @@ export default function App() {
     const effectiveArtic    = repeating ? lastChord!.articulation    : (selectedArticulation ?? undefined);
     const effectiveVoice    = repeating ? lastChord!.voice           : activeVoice;
     const effectiveTuplet   = (!repeating && tripletMode) ? { actual: 3, normal: 2 } : undefined;
+    const effectiveGrace    = pendingGrace ?? undefined;
 
     const newIds = (effectiveIsRest ? ['_'] : effectivePitches).map(() => generateId());
 
@@ -274,7 +286,7 @@ export default function App() {
           newNotes.push({ id: newIds[0], pitch: 'B4', start: beat, duration, isRest: true, tuplet: effectiveTuplet });
         } else {
           effectivePitches.forEach((pitch, i) => {
-            newNotes.push({ id: newIds[i], pitch, start: beat, duration, isRest: false, voice: effectiveVoice, dynamic: effectiveDynamic, articulation: effectiveArtic, tuplet: effectiveTuplet });
+            newNotes.push({ id: newIds[i], pitch, start: beat, duration, isRest: false, voice: effectiveVoice, dynamic: effectiveDynamic, articulation: effectiveArtic, tuplet: effectiveTuplet, graceNote: i === 0 ? effectiveGrace : undefined });
           });
         }
         return newNotes;
@@ -292,12 +304,15 @@ export default function App() {
           newNotes.push({ id: newIds[0], pitch: 'B4', start: appendBeat, duration: effectiveDuration, isRest: true, tuplet: effectiveTuplet });
         } else {
           effectivePitches.forEach((pitch, i) => {
-            newNotes.push({ id: newIds[i], pitch, start: appendBeat, duration: effectiveDuration, isRest: false, voice: effectiveVoice, dynamic: effectiveDynamic, articulation: effectiveArtic, tuplet: effectiveTuplet });
+            newNotes.push({ id: newIds[i], pitch, start: appendBeat, duration: effectiveDuration, isRest: false, voice: effectiveVoice, dynamic: effectiveDynamic, articulation: effectiveArtic, tuplet: effectiveTuplet, graceNote: i === 0 ? effectiveGrace : undefined });
           });
         }
         return newNotes;
       }});
     }
+
+    // Clear pending grace note after it's been consumed
+    if (pendingGrace) setPendingGrace(null);
 
     if (!repeating) {
       activeNotes.forEach(p => audio.stopNoteRealtime(p));
@@ -315,7 +330,7 @@ export default function App() {
     } else {
       setSelectedNoteIds(new Set());
     }
-  }, [activeNotes, isRest, selectedDuration, isDotted, tripletMode, activeVoice, selectedDynamic, selectedArticulation, setSelectedNoteIds, selectedNoteIds, song, harmonyMode, lastChord, activeTrackIndex]);
+  }, [activeNotes, isRest, selectedDuration, isDotted, tripletMode, graceMode, pendingGrace, activeVoice, selectedDynamic, selectedArticulation, setSelectedNoteIds, selectedNoteIds, song, harmonyMode, lastChord, activeTrackIndex]);
 
   // Wrappers that set the sidebar UI value AND apply to any currently selected notes
   const handleSetDynamic = useCallback((d: DynamicMarking | null) => {
@@ -986,6 +1001,9 @@ export default function App() {
           setIsRest={setIsRest}
           tripletMode={tripletMode}
           setTripletMode={setTripletMode}
+          graceMode={graceMode}
+          setGraceMode={setGraceMode}
+          pendingGrace={pendingGrace}
           activeVoice={activeVoice}
           setActiveVoice={setActiveVoice}
           selectedDynamic={selectedDynamic}
