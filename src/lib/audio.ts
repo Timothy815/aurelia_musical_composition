@@ -214,15 +214,12 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
     case 'guitar': {
       return makeSamplerInstrument(
         'guitar',
-        'https://nbrosowsky.github.io/tonejs-instruments/samples/guitar-acoustic/',
+        'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/acoustic_guitar_steel-mp3/',
         {
-          A2: 'A2.mp3', A3: 'A3.mp3', A4: 'A4.mp3', A5: 'A5.mp3',
-          B2: 'B2.mp3', B3: 'B3.mp3', B4: 'B4.mp3',
-          C3: 'C3.mp3', C4: 'C4.mp3', C5: 'C5.mp3',
-          D3: 'D3.mp3', D4: 'D4.mp3', D5: 'D5.mp3',
-          E2: 'E2.mp3', E3: 'E3.mp3', E4: 'E4.mp3',
-          F3: 'F3.mp3', F4: 'F4.mp3',
-          G2: 'G2.mp3', G3: 'G3.mp3', G4: 'G4.mp3',
+          E2: 'E2.mp3', G2: 'G2.mp3', Bb2: 'Bb2.mp3', Db3: 'Db3.mp3',
+          E3: 'E3.mp3', G3: 'G3.mp3', Bb3: 'Bb3.mp3', Db4: 'Db4.mp3',
+          E4: 'E4.mp3', G4: 'G4.mp3', Bb4: 'Bb4.mp3', Db5: 'Db5.mp3',
+          E5: 'E5.mp3',
         },
         { oscillator: { type: 'triangle' }, envelope: { attack: 0.01, decay: 0.3, sustain: 0.3, release: 0.8 } }
       );
@@ -230,12 +227,12 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
     case 'strings': {
       return makeSamplerInstrument(
         'strings',
-        'https://nbrosowsky.github.io/tonejs-instruments/samples/violin/',
+        'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/string_ensemble_1-mp3/',
         {
-          A3: 'A3.mp3', A4: 'A4.mp3', A5: 'A5.mp3', A6: 'A6.mp3',
-          C4: 'C4.mp3', C5: 'C5.mp3', C6: 'C6.mp3', C7: 'C7.mp3',
-          E4: 'E4.mp3', E5: 'E5.mp3', E6: 'E6.mp3',
-          G3: 'G3.mp3', G4: 'G4.mp3', G5: 'G5.mp3', G6: 'G6.mp3',
+          C3: 'C3.mp3', Eb3: 'Eb3.mp3', Gb3: 'Gb3.mp3', A3: 'A3.mp3',
+          C4: 'C4.mp3', Eb4: 'Eb4.mp3', Gb4: 'Gb4.mp3', A4: 'A4.mp3',
+          C5: 'C5.mp3', Eb5: 'Eb5.mp3', Gb5: 'Gb5.mp3', A5: 'A5.mp3',
+          C6: 'C6.mp3',
         },
         { oscillator: { type: 'sawtooth' }, envelope: { attack: 0.4, decay: 0.1, sustain: 0.9, release: 1.5 } }
       );
@@ -243,15 +240,11 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
     case 'brass': {
       return makeSamplerInstrument(
         'brass',
-        'https://nbrosowsky.github.io/tonejs-instruments/samples/trumpet/',
+        'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/brass_section-mp3/',
         {
-          C4: 'C4.mp3', C5: 'C5.mp3', C6: 'C6.mp3',
-          D4: 'D4.mp3', D5: 'D5.mp3',
-          'D#4': 'Ds4.mp3',
-          E4: 'E4.mp3', E5: 'E5.mp3',
-          F4: 'F4.mp3', F5: 'F5.mp3',
-          G3: 'G3.mp3', G4: 'G4.mp3', G5: 'G5.mp3',
-          A3: 'A3.mp3', A4: 'A4.mp3', A5: 'A5.mp3',
+          E2: 'E2.mp3', G2: 'G2.mp3', Bb2: 'Bb2.mp3', Db3: 'Db3.mp3',
+          E3: 'E3.mp3', G3: 'G3.mp3', Bb3: 'Bb3.mp3', Db4: 'Db4.mp3',
+          E4: 'E4.mp3', G4: 'G4.mp3', Bb4: 'Bb4.mp3',
         },
         { oscillator: { type: 'square' }, envelope: { attack: 0.08, decay: 0.2, sustain: 0.75, release: 0.5 } }
       );
@@ -259,12 +252,11 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
     case 'bass': {
       return makeSamplerInstrument(
         'bass',
-        'https://nbrosowsky.github.io/tonejs-instruments/samples/bass-electric/',
+        'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/electric_bass_finger-mp3/',
         {
-          'A#1': 'As1.mp3', 'A#2': 'As2.mp3', 'A#3': 'As3.mp3', 'A#4': 'As4.mp3',
-          'C#1': 'Cs1.mp3', 'C#2': 'Cs2.mp3', 'C#3': 'Cs3.mp3', 'C#4': 'Cs4.mp3',
-          E1: 'E1.mp3', E2: 'E2.mp3', E3: 'E3.mp3', E4: 'E4.mp3',
-          G1: 'G1.mp3', G2: 'G2.mp3', G3: 'G3.mp3', G4: 'G4.mp3',
+          E1: 'E1.mp3', G1: 'G1.mp3', Bb1: 'Bb1.mp3', Db2: 'Db2.mp3',
+          E2: 'E2.mp3', G2: 'G2.mp3', Bb2: 'Bb2.mp3', Db3: 'Db3.mp3',
+          E3: 'E3.mp3', G3: 'G3.mp3',
         },
         { oscillator: { type: 'triangle' }, envelope: { attack: 0.04, decay: 0.35, sustain: 0.7, release: 0.5 } }
       );
@@ -272,12 +264,12 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
     case 'flute': {
       return makeSamplerInstrument(
         'flute',
-        'https://nbrosowsky.github.io/tonejs-instruments/samples/flute/',
+        'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/flute-mp3/',
         {
-          A4: 'A4.mp3', A5: 'A5.mp3', A6: 'A6.mp3',
-          C4: 'C4.mp3', C5: 'C5.mp3', C6: 'C6.mp3', C7: 'C7.mp3',
-          E4: 'E4.mp3', E5: 'E5.mp3', E6: 'E6.mp3',
-          G4: 'G4.mp3', G5: 'G5.mp3', G6: 'G6.mp3',
+          C4: 'C4.mp3', Eb4: 'Eb4.mp3', Gb4: 'Gb4.mp3', A4: 'A4.mp3',
+          C5: 'C5.mp3', Eb5: 'Eb5.mp3', Gb5: 'Gb5.mp3', A5: 'A5.mp3',
+          C6: 'C6.mp3', Eb6: 'Eb6.mp3', Gb6: 'Gb6.mp3', A6: 'A6.mp3',
+          C7: 'C7.mp3',
         },
         { oscillator: { type: 'sine' }, envelope: { attack: 0.2, decay: 0.05, sustain: 0.95, release: 0.8 } }
       );
@@ -285,12 +277,13 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
     case 'organ': {
       return makeSamplerInstrument(
         'organ',
-        'https://nbrosowsky.github.io/tonejs-instruments/samples/organ/',
+        'https://gleitz.github.io/midi-js-soundfonts/MusyngKite/church_organ-mp3/',
         {
-          C3: 'C3.mp3', C4: 'C4.mp3', C5: 'C5.mp3', C6: 'C6.mp3',
-          'D#3': 'Ds3.mp3', 'D#4': 'Ds4.mp3', 'D#5': 'Ds5.mp3',
-          'F#3': 'Fs3.mp3', 'F#4': 'Fs4.mp3', 'F#5': 'Fs5.mp3',
-          A3: 'A3.mp3', A4: 'A4.mp3', A5: 'A5.mp3',
+          C2: 'C2.mp3', Eb2: 'Eb2.mp3', Gb2: 'Gb2.mp3', A2: 'A2.mp3',
+          C3: 'C3.mp3', Eb3: 'Eb3.mp3', Gb3: 'Gb3.mp3', A3: 'A3.mp3',
+          C4: 'C4.mp3', Eb4: 'Eb4.mp3', Gb4: 'Gb4.mp3', A4: 'A4.mp3',
+          C5: 'C5.mp3', Eb5: 'Eb5.mp3', Gb5: 'Gb5.mp3', A5: 'A5.mp3',
+          C6: 'C6.mp3',
         },
         { oscillator: { type: 'square' }, envelope: { attack: 0.01, decay: 0, sustain: 1, release: 0.1 } }
       );
