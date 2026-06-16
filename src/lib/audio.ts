@@ -164,102 +164,123 @@ function getHairpinVelocityMultiplier(beat: number, hairpins: HairpinData[]): nu
 // Returns { synth, chain } where synth is the playable node and chain is the
 // last node in any instrument-specific effects chain (connect chain → masterBus).
 
+/**
+ * Creates a sampler-backed instrument with a PolySynth fallback.
+ * The sampler starts loading immediately; the fallback is used until loaded.
+ * Returns { synth: wrapper, chain: gain } — caller connects gain → masterBus.
+ */
+function makeSamplerInstrument(
+  baseUrl: string,
+  urls: Record<string, string>,
+  fallbackOptions: object
+): { synth: any; chain: Tone.ToneAudioNode } {
+  const gain = new Tone.Gain(1);
+  const sampler = new Tone.Sampler({ urls, baseUrl, release: 1.0 }).connect(gain);
+  const fallback = new Tone.PolySynth(Tone.Synth as any, fallbackOptions as any).connect(gain);
+
+  const wrapper = {
+    triggerAttack: (note: string | string[], time?: any) => {
+      const notes = Array.isArray(note) ? note : [note];
+      const inst: any = sampler.loaded ? sampler : fallback;
+      notes.forEach(n => { try { inst.triggerAttack(n, time ?? Tone.now()); } catch (_) {} });
+    },
+    triggerRelease: (note?: any, time?: any) => {
+      const inst: any = sampler.loaded ? sampler : fallback;
+      try { inst.triggerRelease(note, time ?? Tone.now()); } catch (_) {}
+    },
+    triggerAttackRelease: (note: string | string[], dur: any, time?: any, vel?: any) => {
+      const inst: any = sampler.loaded ? sampler : fallback;
+      const notes = Array.isArray(note) ? note : [note];
+      notes.forEach(n => { try { inst.triggerAttackRelease(n, dur, time ?? Tone.now(), vel); } catch (_) {} });
+    },
+    dispose: () => {
+      try { sampler.dispose(); } catch (_) {}
+      try { fallback.dispose(); } catch (_) {}
+      try { gain.dispose(); } catch (_) {}
+    },
+  };
+  return { synth: wrapper, chain: gain };
+}
+
 function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.ToneAudioNode } {
   switch (preset) {
     case 'guitar': {
-      // PluckSynth (Karplus-Strong) — cannot go in PolySynth because it extends
-      // Instrument, not Synth. Use a round-robin voice pool instead.
-      const NUM_VOICES = 6;
-      const voices = Array.from({ length: NUM_VOICES }, () =>
-        new Tone.PluckSynth({ attackNoise: 1.5, dampening: 4500, resonance: 0.97 } as any)
+      return makeSamplerInstrument(
+        'https://nbrosowsky.github.io/tonejs-instruments/samples/guitar-acoustic/',
+        {
+          A2: 'A2.mp3', A3: 'A3.mp3', A4: 'A4.mp3', A5: 'A5.mp3',
+          B2: 'B2.mp3', B3: 'B3.mp3', B4: 'B4.mp3',
+          C3: 'C3.mp3', C4: 'C4.mp3', C5: 'C5.mp3',
+          D3: 'D3.mp3', D4: 'D4.mp3', D5: 'D5.mp3',
+          E2: 'E2.mp3', E3: 'E3.mp3', E4: 'E4.mp3',
+          F3: 'F3.mp3', F4: 'F4.mp3',
+          G2: 'G2.mp3', G3: 'G3.mp3', G4: 'G4.mp3',
+        },
+        { oscillator: { type: 'triangle' }, envelope: { attack: 0.01, decay: 0.3, sustain: 0.3, release: 0.8 } }
       );
-      const gain = new Tone.Gain(1);
-      voices.forEach(v => v.connect(gain));
-      let vi = 0;
-      const synth = {
-        triggerAttack: (note: string | string[], time?: any) => {
-          const notes = Array.isArray(note) ? note : [note];
-          notes.forEach(n => { voices[vi % NUM_VOICES].triggerAttack(n, time ?? Tone.now()); vi++; });
-        },
-        triggerRelease: (_note?: any) => {},
-        triggerAttackRelease: (note: string | string[], _dur?: any, time?: any, vel?: any) => {
-          const notes = Array.isArray(note) ? note : [note];
-          const v = typeof vel === 'number' ? Math.max(0.01, vel) : 1;
-          notes.forEach(n => {
-            const voice = voices[vi % NUM_VOICES];
-            gain.gain.setValueAtTime(v, time ?? Tone.now());
-            voice.triggerAttack(n, time ?? Tone.now());
-            vi++;
-          });
-        },
-        dispose: () => { voices.forEach(v => { try { v.dispose(); } catch (_) {} }); gain.dispose(); },
-      };
-      return { synth, chain: gain };
     }
     case 'strings': {
-      // AMSynth with slow attack + chorus + short reverb for lush strings
-      const chorus = new Tone.Chorus({ frequency: 1.5, delayTime: 3.5, depth: 0.6 }).start();
-      const reverb = new Tone.Freeverb({ roomSize: 0.75, dampening: 4000 });
-      const synth = new Tone.PolySynth(Tone.AMSynth as any, {
-        harmonicity: 1.5,
-        oscillator: { type: 'sawtooth' },
-        envelope: { attack: 0.45, decay: 0.1, sustain: 0.9, release: 2.0 },
-        modulation: { type: 'sine' },
-        modulationEnvelope: { attack: 0.5, decay: 0, sustain: 1, release: 2 },
-      } as any);
-      synth.connect(chorus);
-      chorus.connect(reverb);
-      return { synth, chain: reverb };
+      return makeSamplerInstrument(
+        'https://nbrosowsky.github.io/tonejs-instruments/samples/violin/',
+        {
+          A3: 'A3.mp3', A4: 'A4.mp3', A5: 'A5.mp3', A6: 'A6.mp3',
+          C4: 'C4.mp3', C5: 'C5.mp3', C6: 'C6.mp3', C7: 'C7.mp3',
+          E4: 'E4.mp3', E5: 'E5.mp3', E6: 'E6.mp3',
+          G3: 'G3.mp3', G4: 'G4.mp3', G5: 'G5.mp3', G6: 'G6.mp3',
+        },
+        { oscillator: { type: 'sawtooth' }, envelope: { attack: 0.4, decay: 0.1, sustain: 0.9, release: 1.5 } }
+      );
     }
     case 'brass': {
-      // FMSynth for a bright metallic brass timbre
-      const dist = new Tone.Distortion({ distortion: 0.12, wet: 0.35 });
-      const synth = new Tone.PolySynth(Tone.FMSynth as any, {
-        harmonicity: 2,
-        modulationIndex: 4,
-        oscillator: { type: 'square' },
-        envelope: { attack: 0.08, decay: 0.2, sustain: 0.75, release: 0.5 },
-        modulation: { type: 'sawtooth' },
-        modulationEnvelope: { attack: 0.1, decay: 0.15, sustain: 0.5, release: 0.5 },
-      } as any);
-      synth.connect(dist);
-      return { synth, chain: dist };
+      return makeSamplerInstrument(
+        'https://nbrosowsky.github.io/tonejs-instruments/samples/trumpet/',
+        {
+          C4: 'C4.mp3', C5: 'C5.mp3', C6: 'C6.mp3',
+          D4: 'D4.mp3', D5: 'D5.mp3',
+          'D#4': 'Ds4.mp3',
+          E4: 'E4.mp3', E5: 'E5.mp3',
+          F4: 'F4.mp3', F5: 'F5.mp3',
+          G3: 'G3.mp3', G4: 'G4.mp3', G5: 'G5.mp3',
+          A3: 'A3.mp3', A4: 'A4.mp3', A5: 'A5.mp3',
+        },
+        { oscillator: { type: 'square' }, envelope: { attack: 0.08, decay: 0.2, sustain: 0.75, release: 0.5 } }
+      );
     }
     case 'bass': {
-      // Heavy low-pass filtered synth for electric bass
-      const filter = new Tone.Filter({ frequency: 600, type: 'lowpass', rolloff: -24 });
-      const synth = new Tone.PolySynth(Tone.Synth as any, {
-        oscillator: { type: 'triangle8' },
-        envelope: { attack: 0.04, decay: 0.35, sustain: 0.7, release: 0.5 },
-      } as any);
-      synth.connect(filter);
-      return { synth, chain: filter };
+      return makeSamplerInstrument(
+        'https://nbrosowsky.github.io/tonejs-instruments/samples/bass-electric/',
+        {
+          'A#1': 'As1.mp3', 'A#2': 'As2.mp3', 'A#3': 'As3.mp3', 'A#4': 'As4.mp3',
+          'C#1': 'Cs1.mp3', 'C#2': 'Cs2.mp3', 'C#3': 'Cs3.mp3', 'C#4': 'Cs4.mp3',
+          E1: 'E1.mp3', E2: 'E2.mp3', E3: 'E3.mp3', E4: 'E4.mp3',
+          G1: 'G1.mp3', G2: 'G2.mp3', G3: 'G3.mp3', G4: 'G4.mp3',
+        },
+        { oscillator: { type: 'triangle' }, envelope: { attack: 0.04, decay: 0.35, sustain: 0.7, release: 0.5 } }
+      );
     }
     case 'flute': {
-      // Sine with vibrato for a breathy flute sound
-      const vibrato = new Tone.Vibrato({ frequency: 5.5, depth: 0.15 });
-      const reverb = new Tone.Freeverb({ roomSize: 0.5, dampening: 6000 });
-      const synth = new Tone.PolySynth(Tone.Synth as any, {
-        oscillator: { type: 'sine' },
-        envelope: { attack: 0.2, decay: 0.05, sustain: 0.95, release: 0.8 },
-      } as any);
-      synth.connect(vibrato);
-      vibrato.connect(reverb);
-      return { synth, chain: reverb };
+      return makeSamplerInstrument(
+        'https://nbrosowsky.github.io/tonejs-instruments/samples/flute/',
+        {
+          A4: 'A4.mp3', A5: 'A5.mp3', A6: 'A6.mp3',
+          C4: 'C4.mp3', C5: 'C5.mp3', C6: 'C6.mp3', C7: 'C7.mp3',
+          E4: 'E4.mp3', E5: 'E5.mp3', E6: 'E6.mp3',
+          G4: 'G4.mp3', G5: 'G5.mp3', G6: 'G6.mp3',
+        },
+        { oscillator: { type: 'sine' }, envelope: { attack: 0.2, decay: 0.05, sustain: 0.95, release: 0.8 } }
+      );
     }
     case 'organ': {
-      // FMSynth tuned for a Hammond drawbar-style organ sound
-      const chorus = new Tone.Chorus({ frequency: 3, delayTime: 3.5, depth: 0.4 }).start();
-      const synth = new Tone.PolySynth(Tone.FMSynth as any, {
-        harmonicity: 1,
-        modulationIndex: 1,
-        oscillator: { type: 'square' },
-        envelope: { attack: 0.01, decay: 0, sustain: 1, release: 0.1 },
-        modulation: { type: 'square' },
-        modulationEnvelope: { attack: 0.01, decay: 0, sustain: 1, release: 0.1 },
-      } as any);
-      synth.connect(chorus);
-      return { synth, chain: chorus };
+      return makeSamplerInstrument(
+        'https://nbrosowsky.github.io/tonejs-instruments/samples/organ/',
+        {
+          C3: 'C3.mp3', C4: 'C4.mp3', C5: 'C5.mp3', C6: 'C6.mp3',
+          'D#3': 'Ds3.mp3', 'D#4': 'Ds4.mp3', 'D#5': 'Ds5.mp3',
+          'F#3': 'Fs3.mp3', 'F#4': 'Fs4.mp3', 'F#5': 'Fs5.mp3',
+          A3: 'A3.mp3', A4: 'A4.mp3', A5: 'A5.mp3',
+        },
+        { oscillator: { type: 'square' }, envelope: { attack: 0.01, decay: 0, sustain: 1, release: 0.1 } }
+      );
     }
     case 'synth': {
       // Classic polysynth — sawtooth with mild PWM for animation
