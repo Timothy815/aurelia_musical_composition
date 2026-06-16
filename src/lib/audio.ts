@@ -416,7 +416,7 @@ class AudioEngine {
   private customRealtime: { synth: any; chain: Tone.ToneAudioNode; preset: InstrumentPreset } | null = null;
   private initPromise: Promise<void> | null = null;
   private midiActivePitches = new Set<string>();
-  private midiNoteSource = new Map<string, 'sampler' | 'fallback'>();
+  private midiNoteSource = new Map<string, 'sampler' | 'fallback' | 'custom'>();
 
   // ── Master bus + effects chain ───────────────────────────────────────────
   private masterBus: Tone.Gain | null = null;
@@ -429,7 +429,6 @@ class AudioEngine {
   private fxDelay: Tone.FeedbackDelay | null = null;
   private fxReverb: Tone.Freeverb | null = null;
   private fxVibrato: Tone.Vibrato | null = null;
-  private midiAccess: any = null;
 
   onNotePlay?: (pitch: string) => void;
   onNoteStop?: (pitch: string) => void;
@@ -511,51 +510,12 @@ class AudioEngine {
         this.metronomeSynth.volume.value = -10;
 
         this.initialized = true;
-        this.initMidi();
       })();
     }
     return this.initPromise;
   }
 
-  // ── MIDI device input ─────────────────────────────────────────────────────
-
-  private initMidi() {
-    if (!(navigator as any).requestMIDIAccess) return;
-    (navigator as any).requestMIDIAccess({ sysex: false })
-      .then((access: any) => {
-        this.midiAccess = access;
-        access.inputs.forEach((input: any) => {
-          input.onmidimessage = (e: any) => this.handleMidiMessage(e);
-        });
-        access.onstatechange = (e: any) => {
-          if (e.port.type === 'input' && e.port.state === 'connected') {
-            e.port.onmidimessage = (msg: any) => this.handleMidiMessage(msg);
-          }
-        };
-      })
-      .catch(() => {});
-  }
-
-  private handleMidiMessage(event: any) {
-    const data: Uint8Array = event.data;
-    if (!data || data.length < 2) return;
-    const status = data[0];
-    const data1  = data[1];
-    const data2  = data.length > 2 ? data[2] : 0;
-    const type   = status & 0xF0;
-
-    if (type === 0xE0) {
-      // Pitch bend: 14-bit value centered at 8192, range ±2 semitones = ±200 cents
-      const raw   = ((data2 << 7) | data1) - 8192;
-      const cents = (raw / 8192) * 200;
-      this.applyPitchBend(cents);
-    } else if (type === 0xB0 && data1 === 1) {
-      // Modulation wheel (CC#1): drive vibrato depth 0–0.3
-      if (this.fxVibrato) {
-        (this.fxVibrato.depth as any).value = (data2 / 127) * 0.3;
-      }
-    }
-  }
+  // ── MIDI wheel controls ───────────────────────────────────────────────────
 
   applyPitchBend(cents: number) {
     if (this.sampler) {
@@ -564,6 +524,9 @@ class AudioEngine {
     _samplerCache.forEach(s => {
       try { (s as any).detune.value = cents; } catch (_) {}
     });
+    if (this.customRealtime) {
+      try { (this.customRealtime.synth as any).detune?.value !== undefined && ((this.customRealtime.synth as any).detune.value = cents); } catch (_) {}
+    }
     if (this.realtimeFallback) {
       try { (this.realtimeFallback as any).detune.value = cents; } catch (_) {}
     }
@@ -572,6 +535,12 @@ class AudioEngine {
     }
     if (this.previewSynth) {
       try { (this.previewSynth as any).detune.value = cents; } catch (_) {}
+    }
+  }
+
+  setModulation(value: number) {
+    if (this.fxVibrato) {
+      (this.fxVibrato.depth as any).value = (value / 127) * 0.3;
     }
   }
 
@@ -679,45 +648,42 @@ class AudioEngine {
 
   playMidiNote(pitch: string) {
     if (!this.initialized) return;
-    if (this.midiActivePitches.has(pitch)) {
-      const src = this.midiNoteSource.get(pitch);
-      try {
-        if (src === 'fallback') this.realtimeFallback?.triggerRelease(pitch, Tone.now());
-        else this.sampler?.triggerRelease(pitch, Tone.now());
-      } catch (_) {}
-    }
+    if (this.midiActivePitches.has(pitch)) this._releaseMidiNote(pitch);
     this.midiActivePitches.add(pitch);
-    if (this.sampler) {
-      this.sampler.triggerAttack(pitch, Tone.now() + 0.015, 0.8);
+    const t = Tone.now() + 0.015;
+    if (this.customRealtime) {
+      try { this.customRealtime.synth.triggerAttack(pitch, t); } catch (_) {}
+      this.midiNoteSource.set(pitch, 'custom');
+    } else if (this.sampler) {
+      this.sampler.triggerAttack(pitch, t, 0.8);
       this.midiNoteSource.set(pitch, 'sampler');
     } else {
-      this.realtimeFallback?.triggerAttack(pitch, Tone.now() + 0.015);
+      this.realtimeFallback?.triggerAttack(pitch, t);
       this.midiNoteSource.set(pitch, 'fallback');
     }
   }
 
   stopMidiNote(pitch: string) {
     if (!this.initialized) return;
+    if (!this.midiActivePitches.has(pitch)) return;
     this.midiActivePitches.delete(pitch);
+    this._releaseMidiNote(pitch);
+  }
+
+  private _releaseMidiNote(pitch: string) {
     const src = this.midiNoteSource.get(pitch);
     this.midiNoteSource.delete(pitch);
+    const t = Tone.now() + 0.015;
     try {
-      if (src === 'fallback') this.realtimeFallback?.triggerRelease(pitch, Tone.now() + 0.015);
-      else this.sampler?.triggerRelease(pitch, Tone.now() + 0.015);
+      if (src === 'custom') this.customRealtime?.synth.triggerRelease?.(pitch, t);
+      else if (src === 'fallback') this.realtimeFallback?.triggerRelease(pitch, t);
+      else this.sampler?.triggerRelease(pitch, t);
     } catch (_) {}
   }
 
   releaseAllMidiNotes() {
-    const now = Tone.now();
-    this.midiActivePitches.forEach(pitch => {
-      const src = this.midiNoteSource.get(pitch);
-      try {
-        if (src === 'fallback') this.realtimeFallback?.triggerRelease(pitch, now);
-        else this.sampler?.triggerRelease(pitch, now);
-      } catch (_) {}
-    });
+    this.midiActivePitches.forEach(pitch => this._releaseMidiNote(pitch));
     this.midiActivePitches.clear();
-    this.midiNoteSource.clear();
   }
 
   // ── Preview ───────────────────────────────────────────────────────────────

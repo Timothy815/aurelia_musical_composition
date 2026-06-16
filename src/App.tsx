@@ -166,6 +166,13 @@ export default function App() {
           });
         }
       }
+    } else if (status === 0xE0) {
+      // Pitch bend: data1=LSB, data2=MSB, center=8192, range ±2 semitones
+      const raw = ((velocity << 7) | midiNote) - 8192;
+      audio.applyPitchBend((raw / 8192) * 200);
+    } else if (status === 0xB0 && midiNote === 1) {
+      // Modulation wheel (CC#1)
+      audio.setModulation(velocity);
     }
   }, []); // stable — all mutable values read from refs
 
