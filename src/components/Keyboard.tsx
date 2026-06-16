@@ -146,64 +146,6 @@ export function Keyboard({
     };
   }, []);
 
-  // Handle WebMIDI
-  useEffect(() => {
-    let midiAccess: any = null;
-    let cleanupFuncs: (() => void)[] = [];
-
-    const onMIDIMessage = (event: any) => {
-        if (!event.data) return;
-        const [status, data1, data2] = event.data;
-        const command = status >> 4;
-        const note = data1;
-        const velocity = data2 || 0;
-        
-        const pitch = midiToPitch(note);
-        const { onNoteOn, onNoteOff, latchMode, activeNotes } = callbacksRef.current;
-        
-        // Note on
-        if (command === 9 && velocity > 0) {
-            if (latchMode) {
-                if (activeNotes.has(pitch) || audio.realtimeNotes.has(pitch)) onNoteOff(pitch);
-                else onNoteOn(pitch);
-            } else {
-                onNoteOn(pitch);
-            }
-        }
-        // Note off
-        else if (command === 8 || (command === 9 && velocity === 0)) {
-            if (!latchMode) {
-                onNoteOff(pitch);
-            }
-        }
-    };
-
-    if (navigator.requestMIDIAccess) {
-        navigator.requestMIDIAccess().then((access) => {
-            midiAccess = access;
-            for (let input of access.inputs.values()) {
-                input.onmidimessage = onMIDIMessage;
-                cleanupFuncs.push(() => {
-                   input.onmidimessage = null;
-                });
-            }
-            
-            access.onstatechange = (e) => {
-                // Re-bind when devices connect
-                for (let input of access.inputs.values()) {
-                    input.onmidimessage = onMIDIMessage;
-                }
-            }
-        }).catch((err) => console.log('MIDI access failed', err));
-    }
-
-    return () => {
-        cleanupFuncs.forEach(fn => fn());
-        if (midiAccess) {
-            midiAccess.onstatechange = null;
-        }
-    }
-  }, []);
 
   return (
     <div className="flex flex-col bg-[#0A0A0B] border-t border-[#1F1F21] shrink-0 h-44 relative z-20">

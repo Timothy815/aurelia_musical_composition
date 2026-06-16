@@ -233,14 +233,28 @@ export default function App() {
     setActiveNotes(prev => { const n = new Set(prev); n.delete(pitch); return n; });
     audio.stopNoteRealtime(pitch);
   };
-  // MIDI path uses dedicated methods (isolated state, proper lookahead scheduling)
+  // MIDI path: latch-aware so keys work in both Score Mode and Playing Mode
   handleNoteOnRef.current = (pitch: string) => {
-    setActiveNotes(prev => { const n = new Set(prev); n.add(pitch); return n; });
-    audio.playMidiNote(pitch);
+    if (!playMode) {
+      // Score mode: toggle latch (press again to unlatch)
+      if (activeNotes.has(pitch)) {
+        setActiveNotes(prev => { const n = new Set(prev); n.delete(pitch); return n; });
+        audio.stopMidiNote(pitch);
+      } else {
+        setActiveNotes(prev => { const n = new Set(prev); n.add(pitch); return n; });
+        audio.playMidiNote(pitch);
+      }
+    } else {
+      setActiveNotes(prev => { const n = new Set(prev); n.add(pitch); return n; });
+      audio.playMidiNote(pitch);
+    }
   };
   handleNoteOffRef.current = (pitch: string) => {
-    setActiveNotes(prev => { const n = new Set(prev); n.delete(pitch); return n; });
-    audio.stopMidiNote(pitch);
+    if (playMode) {
+      // Only release on key-up in Playing Mode; Score Mode holds until toggled
+      setActiveNotes(prev => { const n = new Set(prev); n.delete(pitch); return n; });
+      audio.stopMidiNote(pitch);
+    }
   };
 
   const handleAppendToScore = useCallback(() => {
