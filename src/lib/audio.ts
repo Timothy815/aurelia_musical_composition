@@ -164,18 +164,23 @@ function getHairpinVelocityMultiplier(beat: number, hairpins: HairpinData[]): nu
 // Returns { synth, chain } where synth is the playable node and chain is the
 // last node in any instrument-specific effects chain (connect chain → masterBus).
 
-/**
- * Creates a sampler-backed instrument with a PolySynth fallback.
- * The sampler starts loading immediately; the fallback is used until loaded.
- * Returns { synth: wrapper, chain: gain } — caller connects gain → masterBus.
- */
+// Samplers are expensive to create (each triggers CDN fetches). Cache one per
+// preset and reuse across play sessions — only disconnect, never dispose them.
+const _samplerCache = new Map<string, Tone.Sampler>();
+
 function makeSamplerInstrument(
+  cacheKey: string,
   baseUrl: string,
   urls: Record<string, string>,
   fallbackOptions: object
 ): { synth: any; chain: Tone.ToneAudioNode } {
+  if (!_samplerCache.has(cacheKey)) {
+    _samplerCache.set(cacheKey, new Tone.Sampler({ urls, baseUrl, release: 1.0 }));
+  }
+  const sampler = _samplerCache.get(cacheKey)!;
+
   const gain = new Tone.Gain(1);
-  const sampler = new Tone.Sampler({ urls, baseUrl, release: 1.0 }).connect(gain);
+  sampler.connect(gain);
   const fallback = new Tone.PolySynth(Tone.Synth as any, fallbackOptions as any).connect(gain);
 
   const wrapper = {
@@ -194,7 +199,9 @@ function makeSamplerInstrument(
       notes.forEach(n => { try { inst.triggerAttackRelease(n, dur, time ?? Tone.now(), vel); } catch (_) {} });
     },
     dispose: () => {
-      try { sampler.dispose(); } catch (_) {}
+      // Disconnect sampler from this gain but do NOT dispose it — the sampler
+      // is cached and reused across play sessions to avoid CDN re-fetches.
+      try { (sampler as any).disconnect(gain); } catch (_) {}
       try { fallback.dispose(); } catch (_) {}
       try { gain.dispose(); } catch (_) {}
     },
@@ -206,6 +213,7 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
   switch (preset) {
     case 'guitar': {
       return makeSamplerInstrument(
+        'guitar',
         'https://nbrosowsky.github.io/tonejs-instruments/samples/guitar-acoustic/',
         {
           A2: 'A2.mp3', A3: 'A3.mp3', A4: 'A4.mp3', A5: 'A5.mp3',
@@ -221,6 +229,7 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
     }
     case 'strings': {
       return makeSamplerInstrument(
+        'strings',
         'https://nbrosowsky.github.io/tonejs-instruments/samples/violin/',
         {
           A3: 'A3.mp3', A4: 'A4.mp3', A5: 'A5.mp3', A6: 'A6.mp3',
@@ -233,6 +242,7 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
     }
     case 'brass': {
       return makeSamplerInstrument(
+        'brass',
         'https://nbrosowsky.github.io/tonejs-instruments/samples/trumpet/',
         {
           C4: 'C4.mp3', C5: 'C5.mp3', C6: 'C6.mp3',
@@ -248,6 +258,7 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
     }
     case 'bass': {
       return makeSamplerInstrument(
+        'bass',
         'https://nbrosowsky.github.io/tonejs-instruments/samples/bass-electric/',
         {
           'A#1': 'As1.mp3', 'A#2': 'As2.mp3', 'A#3': 'As3.mp3', 'A#4': 'As4.mp3',
@@ -260,6 +271,7 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
     }
     case 'flute': {
       return makeSamplerInstrument(
+        'flute',
         'https://nbrosowsky.github.io/tonejs-instruments/samples/flute/',
         {
           A4: 'A4.mp3', A5: 'A5.mp3', A6: 'A6.mp3',
@@ -272,6 +284,7 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
     }
     case 'organ': {
       return makeSamplerInstrument(
+        'organ',
         'https://nbrosowsky.github.io/tonejs-instruments/samples/organ/',
         {
           C3: 'C3.mp3', C4: 'C4.mp3', C5: 'C5.mp3', C6: 'C6.mp3',
