@@ -429,6 +429,7 @@ class AudioEngine {
   private fxDelay: Tone.FeedbackDelay | null = null;
   private fxReverb: Tone.Freeverb | null = null;
   private fxVibrato: Tone.Vibrato | null = null;
+  private fxPitchBend: Tone.PitchShift | null = null;
 
   onNotePlay?: (pitch: string) => void;
   onNoteStop?: (pitch: string) => void;
@@ -453,12 +454,11 @@ class AudioEngine {
         this.fxDelay     = new Tone.FeedbackDelay({ delayTime: 0.375, feedback: 0.4, wet: 0 });
         this.fxReverb    = new Tone.Freeverb({ roomSize: 0.7, dampening: 3000, wet: 0 });
         this.fxVibrato   = new Tone.Vibrato({ frequency: 5, depth: 0, wet: 1 });
+        this.fxPitchBend = new Tone.PitchShift({ pitch: 0, windowSize: 0.03, wet: 0 });
 
         (this.fxFuzz as any).wet.value = 0;
 
-        // Chain in series: masterBus → fuzz → overdrive → phaser → chorus → flanger → tremolo → delay → reverb → vibrato → dest
-        // NOTE: .connect() returns `this` (the source), so chaining it wires everything in parallel.
-        // .chain() wires nodes in series as expected.
+        // Chain in series: masterBus → fuzz → overdrive → phaser → chorus → flanger → tremolo → delay → reverb → vibrato → pitchBend → dest
         this.masterBus.chain(
           this.fxFuzz!,
           this.fxOverdrive!,
@@ -469,6 +469,7 @@ class AudioEngine {
           this.fxDelay!,
           this.fxReverb!,
           this.fxVibrato!,
+          this.fxPitchBend!,
           Tone.getDestination()
         );
 
@@ -518,29 +519,18 @@ class AudioEngine {
   // ── MIDI wheel controls ───────────────────────────────────────────────────
 
   applyPitchBend(cents: number) {
-    if (this.sampler) {
-      try { (this.sampler as any).detune.value = cents; } catch (_) {}
-    }
-    _samplerCache.forEach(s => {
-      try { (s as any).detune.value = cents; } catch (_) {}
-    });
-    if (this.customRealtime) {
-      try { (this.customRealtime.synth as any).detune?.value !== undefined && ((this.customRealtime.synth as any).detune.value = cents); } catch (_) {}
-    }
-    if (this.realtimeFallback) {
-      try { (this.realtimeFallback as any).detune.value = cents; } catch (_) {}
-    }
-    if (this.fallbackSynth) {
-      try { (this.fallbackSynth as any).detune.value = cents; } catch (_) {}
-    }
-    if (this.previewSynth) {
-      try { (this.previewSynth as any).detune.value = cents; } catch (_) {}
-    }
+    // PitchShift is in the master chain so it bends ALL currently playing audio in real-time.
+    // Sampler.detune only applies at note-on time, so this is the only reliable approach.
+    if (!this.fxPitchBend) return;
+    (this.fxPitchBend as any).pitch = cents / 100; // cents → semitones
+    // Bypass when wheel is centered to avoid adding internal delay when not bending
+    (this.fxPitchBend as any).wet.value = Math.abs(cents) < 2 ? 0 : 1;
   }
 
   setModulation(value: number) {
     if (this.fxVibrato) {
-      (this.fxVibrato.depth as any).value = (value / 127) * 0.3;
+      // depth 0–0.7: at max wheel the vibrato is clearly audible
+      this.fxVibrato.depth.value = (value / 127) * 0.7;
     }
   }
 
