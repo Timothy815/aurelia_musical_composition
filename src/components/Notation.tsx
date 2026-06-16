@@ -12,6 +12,7 @@ import {
   PAGE_MARGIN_TOP, PAGE_MARGIN_BOTTOM, PAGE_BETWEEN_GAP,
   ChordDiagramResult, collectUniqueChordsForTab, ChordForTab,
   DIAG_W, DIAG_H, DIAG_FRET_ROWS, analyzeChordDiagram,
+  DRUM_PITCHES, DRUM_LABELS,
 } from '../lib/notation';
 import { SongData, NoteData, DynamicMarking, ArticulationMarking, InstrumentPreset } from '../types';
 import { generateId, cn } from '../lib/utils';
@@ -328,8 +329,9 @@ export function Notation({
     const maxBeat = Math.max(box.startBeat, box.endBeat) + 1 / GRID_SUBDIVISIONS;
     const minR = Math.min(box.startRIndex, box.endRIndex);
     const maxR = Math.max(box.startRIndex, box.endRIndex);
-    const pitches = new Set(PITCHES.slice(minR, maxR + 1));
     const track = song.tracks[box.tIndex];
+    const boxPitchArray: readonly string[] = track.instrument === 'drums' ? DRUM_PITCHES : PITCHES;
+    const pitches = new Set(boxPitchArray.slice(minR, maxR + 1));
     const enclosed = track.notes.filter(n =>
       n.start < maxBeat && n.start + n.duration > minBeat && pitches.has(n.pitch)
     );
@@ -340,13 +342,15 @@ export function Notation({
     const deltaBeat = drag.endBeat - drag.startBeat;
     const deltaR = drag.endRIndex - drag.startRIndex;
     if (deltaBeat === 0 && deltaR === 0) return;
+    const affectedTracks = song.tracks.filter(t => t.notes.some(n => drag.noteIds.includes(n.id)));
+    const dragIsDrum = affectedTracks.length === 1 && affectedTracks[0].instrument === 'drums';
+    const dragPitchArray: readonly string[] = dragIsDrum ? DRUM_PITCHES : PITCHES;
     const moveNote = (n: NoteData) => {
       const newStart = Math.max(0, n.start + deltaBeat);
-      const pitchIdx = PITCHES.indexOf(n.pitch);
-      const newPitchIdx = Math.max(0, Math.min(PITCHES.length - 1, pitchIdx + deltaR));
-      return { ...n, start: newStart, pitch: PITCHES[newPitchIdx] };
+      const pitchIdx = dragPitchArray.indexOf(n.pitch);
+      const newPitchIdx = Math.max(0, Math.min(dragPitchArray.length - 1, pitchIdx + deltaR));
+      return { ...n, start: newStart, pitch: dragPitchArray[newPitchIdx] };
     };
-    const affectedTracks = song.tracks.filter(t => t.notes.some(n => drag.noteIds.includes(n.id)));
     if (onSetTrackNotes && affectedTracks.length === 1) {
       onSetTrackNotes(affectedTracks[0].id, prevNotes =>
         prevNotes.map(n => drag.noteIds.includes(n.id) ? moveNote(n) : n)
@@ -403,7 +407,9 @@ export function Notation({
     if (dragBox) {
       const isSingleCell = dragBox.startBeat === dragBox.endBeat && dragBox.startRIndex === dragBox.endRIndex;
       if (isSingleCell) {
-        handleGridClick(dragBox.tIndex, dragBox.startBeat, PITCHES[dragBox.startRIndex]);
+        const clickTrack = song.tracks[dragBox.tIndex];
+        const clickPitchArray: readonly string[] = clickTrack?.instrument === 'drums' ? DRUM_PITCHES : PITCHES;
+        handleGridClick(dragBox.tIndex, dragBox.startBeat, clickPitchArray[dragBox.startRIndex]);
       } else {
         commitDragBox(dragBox);
       }
@@ -444,30 +450,34 @@ export function Notation({
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       if (selectedNoteIds.size === 0) return;
-      const rowOf = (pitch: string) => PITCHES.indexOf(pitch.replace(/[#b]/, ''));
+      const arrowAffectedTracks = song.tracks.filter(t => t.notes.some(n => selectedNoteIds.has(n.id)));
+      const arrowIsDrum = arrowAffectedTracks.length === 1 && arrowAffectedTracks[0].instrument === 'drums';
+      const arrowPitchArray: readonly string[] = arrowIsDrum ? DRUM_PITCHES : PITCHES;
+      const rowOf = (pitch: string) => arrowIsDrum
+        ? arrowPitchArray.indexOf(pitch)
+        : arrowPitchArray.indexOf(pitch.replace(/[#b]/, ''));
       const selectedNotes = song.tracks.flatMap(t => t.notes).filter(n => selectedNoteIds.has(n.id));
       const canAllMove = selectedNotes.every(n => {
         const idx = rowOf(n.pitch);
         if (idx === -1) return false;
         const next = e.key === 'ArrowUp' ? idx - 1 : idx + 1;
-        return next >= 0 && next < PITCHES.length;
+        return next >= 0 && next < arrowPitchArray.length;
       });
       if (!canAllMove) return;
       selectedNotes.forEach(n => {
         if (onPlayNote && !n.isRest) {
           const idx = rowOf(n.pitch);
-          onPlayNote(PITCHES[e.key === 'ArrowUp' ? idx - 1 : idx + 1]);
+          onPlayNote(arrowPitchArray[e.key === 'ArrowUp' ? idx - 1 : idx + 1]);
         }
       });
       const shiftNote = (n: NoteData) => {
         if (!selectedNoteIds.has(n.id)) return n;
         const idx = rowOf(n.pitch);
         if (idx === -1) return n;
-        return { ...n, pitch: PITCHES[e.key === 'ArrowUp' ? idx - 1 : idx + 1] };
+        return { ...n, pitch: arrowPitchArray[e.key === 'ArrowUp' ? idx - 1 : idx + 1] };
       };
-      const affectedTracks = song.tracks.filter(t => t.notes.some(n => selectedNoteIds.has(n.id)));
-      if (onSetTrackNotes && affectedTracks.length === 1) {
-        onSetTrackNotes(affectedTracks[0].id, prevNotes => prevNotes.map(shiftNote));
+      if (onSetTrackNotes && arrowAffectedTracks.length === 1) {
+        onSetTrackNotes(arrowAffectedTracks[0].id, prevNotes => prevNotes.map(shiftNote));
       } else {
         onUpdateSong(prev => ({ ...prev, tracks: prev.tracks.map(t => ({ ...t, notes: t.notes.map(shiftNote) })) }));
       }
@@ -1208,6 +1218,8 @@ export function Notation({
         {/* Per-track, per-measure grid sections */}
         {song.tracks.map((track, tIndex) => {
           const tc = track.color ?? '#D4AF37';
+          const isDrum = track.instrument === 'drums';
+          const pitchArray: readonly string[] = isDrum ? DRUM_PITCHES : PITCHES;
           return Array.from({ length: numRows }, (_, rowIdx) =>
             Array.from(
               { length: Math.min(measuresPerRow, totalMeasures - rowIdx * measuresPerRow) },
@@ -1226,7 +1238,7 @@ export function Notation({
                       left: sectionLeft,
                       top: sectionTop,
                       width: notesWidthPerMeasure,
-                      height: PITCHES.length * CELL_HEIGHT,
+                      height: pitchArray.length * CELL_HEIGHT,
                       outline: (!chordMode && tIndex === activeTrackIndex)
                         ? `1px solid ${addAlpha(tc, 0.25)}`
                         : undefined,
@@ -1239,7 +1251,7 @@ export function Notation({
                       onSetActiveTrack?.(tIndex);
                       const { beat, rIdx } = getSectionTouchCell(e.touches[0], e.currentTarget, mStart);
                       const startNotes = track.notes.filter(n =>
-                        Math.abs(n.start - beat) < 0.01 && n.pitch === PITCHES[rIdx]
+                        Math.abs(n.start - beat) < 0.01 && n.pitch === pitchArray[rIdx]
                       );
                       if (startNotes.length > 0) {
                         const ids = startNotes.some(n => selectedNoteIds.has(n.id))
@@ -1270,7 +1282,7 @@ export function Notation({
                       handleGlobalMouseUp();
                     }}
                   >
-                    {PITCHES.map((pitch, rIdx) => (
+                    {pitchArray.map((pitch, rIdx) => (
                       <div key={pitch} className="flex" style={{ height: CELL_HEIGHT }}>
                         {Array.from({ length: beatsPerMeasure * GRID_SUBDIVISIONS }, (_, cIdx) => {
                           const beat = mStart + cIdx / GRID_SUBDIVISIONS;

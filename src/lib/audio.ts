@@ -290,6 +290,99 @@ function makeInstrument(preset: InstrumentPreset): { synth: any; chain: Tone.Ton
       } as any);
       return { synth, chain: synth };
     }
+    case 'drums': {
+      const gain = new Tone.Gain(1);
+
+      // Kick
+      const kick = new Tone.MembraneSynth({
+        pitchDecay: 0.05, octaves: 6,
+        envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.1 },
+      }).connect(gain);
+
+      // Floor tom
+      const floorTom = new Tone.MembraneSynth({
+        pitchDecay: 0.04, octaves: 5,
+        envelope: { attack: 0.001, decay: 0.22, sustain: 0, release: 0.1 },
+      }).connect(gain);
+
+      // Mid tom
+      const midTom = new Tone.MembraneSynth({
+        pitchDecay: 0.035, octaves: 4.5,
+        envelope: { attack: 0.001, decay: 0.18, sustain: 0, release: 0.08 },
+      }).connect(gain);
+
+      // High tom
+      const highTom = new Tone.MembraneSynth({
+        pitchDecay: 0.03, octaves: 4,
+        envelope: { attack: 0.001, decay: 0.14, sustain: 0, release: 0.06 },
+      }).connect(gain);
+
+      // Snare
+      const snare = new Tone.NoiseSynth({
+        noise: { type: 'white' },
+        envelope: { attack: 0.001, decay: 0.14, sustain: 0, release: 0.05 },
+      }).connect(gain);
+
+      // Hi-hat closed
+      const hihat = new (Tone as any).MetalSynth({
+        frequency: 400, envelope: { attack: 0.001, decay: 0.08, release: 0.01 },
+        harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
+      }).connect(gain);
+
+      // Hi-hat open
+      const openHihat = new (Tone as any).MetalSynth({
+        frequency: 400, envelope: { attack: 0.001, decay: 0.35, release: 0.1 },
+        harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
+      }).connect(gain);
+
+      // Ride
+      const ride = new (Tone as any).MetalSynth({
+        frequency: 250, envelope: { attack: 0.001, decay: 0.5, release: 0.2 },
+        harmonicity: 5.1, modulationIndex: 32, resonance: 3000, octaves: 1.5,
+      }).connect(gain);
+
+      // Crash
+      const crash = new (Tone as any).MetalSynth({
+        frequency: 300, envelope: { attack: 0.001, decay: 1.2, release: 0.5 },
+        harmonicity: 5.1, modulationIndex: 32, resonance: 3500, octaves: 1.5,
+      }).connect(gain);
+
+      const drumSynths: Record<string, any> = {
+        F3: kick, A3: floorTom, D4: midTom, E4: highTom,
+        C4: snare, F5: hihat, G5: openHihat, A5: ride, B5: crash,
+      };
+      const drumFreqs: Record<string, number> = {
+        F3: 55, A3: 80, D4: 110, E4: 150,
+      };
+
+      const triggerDrum = (pitch: string, dur: any, time: any, vel: any) => {
+        const s = drumSynths[pitch];
+        if (!s) return;
+        try {
+          if (pitch === 'C4') {
+            s.triggerAttackRelease(dur, time ?? Tone.now(), vel);
+          } else if (['F5', 'G5', 'A5', 'B5'].includes(pitch)) {
+            s.triggerAttackRelease(dur, time ?? Tone.now(), vel);
+          } else {
+            s.triggerAttackRelease(drumFreqs[pitch] ?? 100, dur, time ?? Tone.now(), vel);
+          }
+        } catch (_) {}
+      };
+
+      const wrapper = {
+        triggerAttack: (_note: any, _time?: any) => {},
+        triggerRelease: (_note?: any, _time?: any) => {},
+        triggerAttackRelease: (note: string | string[], dur: any, time?: any, vel?: any) => {
+          const notes = Array.isArray(note) ? note : [note];
+          notes.forEach(n => triggerDrum(n, dur, time, vel));
+        },
+        dispose: () => {
+          [kick, floorTom, midTom, highTom, snare, hihat, openHihat, ride, crash, gain]
+            .forEach(s => { try { s.dispose(); } catch (_) {} });
+        },
+      };
+      return { synth: wrapper, chain: gain };
+    }
     default:
       // piano — caller handles via sampler, but need a fallback shape
       const synth = new Tone.PolySynth(Tone.Synth as any, {

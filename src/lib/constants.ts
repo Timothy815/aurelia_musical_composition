@@ -41,7 +41,7 @@ export const KEY_SIGNATURES = ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'F', 'Bb', 'E
 
 export const INSTRUMENT_LABELS: Record<InstrumentPreset, string> = {
   piano: 'Piano', guitar: 'Guitar', strings: 'Strings', brass: 'Brass',
-  bass: 'Bass', flute: 'Flute', organ: 'Organ', synth: 'Synth'
+  bass: 'Bass', flute: 'Flute', organ: 'Organ', synth: 'Synth', drums: 'Drums'
 };
 
 export const TRACK_COLORS = ['#D4AF37', '#4D96FF', '#FF6B6B', '#4ECDC4', '#95E06C', '#FF8C42', '#C77DFF'];

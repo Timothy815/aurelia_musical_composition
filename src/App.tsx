@@ -12,6 +12,7 @@ import { Notation } from './components/Notation';
 import { LeftSidebarPanel } from './components/LeftSidebarPanel';
 import { exportToMidi, exportToPdf, exportToMusicXML, saveFile, loadFile } from './lib/export';
 import { TemplatePickerModal } from './components/TemplatePickerModal';
+import { DRUM_PITCHES, DRUM_LABELS } from './lib/notation';
 
 // ── App ────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -1133,25 +1134,70 @@ export default function App() {
 
       {/* Instrument Panel */}
       <div className="flex flex-col border-t border-[#1F1F21] bg-[#0A0A0C] relative shrink-0">
-        <div className="absolute top-0 right-4 -translate-y-full flex bg-[#0A0A0C] border border-b-0 border-[#1F1F21] rounded-t overflow-hidden z-20">
-          <button
-            onClick={() => setInstrumentView('keyboard')}
-            className={cn("px-4 py-1.5 text-[10px] uppercase tracking-wider font-bold transition-colors", instrumentView === 'keyboard' ? "bg-[#D4AF37] text-black" : "text-[#8E8E93] hover:text-white hover:bg-[#1A1A1C]")}
-          >Keys</button>
-          <div className="w-px bg-[#1F1F21]" />
-          <button
-            onClick={() => setInstrumentView('fretboard')}
-            className={cn("px-4 py-1.5 text-[10px] uppercase tracking-wider font-bold transition-colors", instrumentView === 'fretboard' ? "bg-[#D4AF37] text-black" : "text-[#8E8E93] hover:text-white hover:bg-[#1A1A1C]")}
-          >Guitar</button>
-        </div>
+        {song.tracks[activeTrackIndex]?.instrument !== 'drums' && (
+          <div className="absolute top-0 right-4 -translate-y-full flex bg-[#0A0A0C] border border-b-0 border-[#1F1F21] rounded-t overflow-hidden z-20">
+            <button
+              onClick={() => setInstrumentView('keyboard')}
+              className={cn("px-4 py-1.5 text-[10px] uppercase tracking-wider font-bold transition-colors", instrumentView === 'keyboard' ? "bg-[#D4AF37] text-black" : "text-[#8E8E93] hover:text-white hover:bg-[#1A1A1C]")}
+            >Keys</button>
+            <div className="w-px bg-[#1F1F21]" />
+            <button
+              onClick={() => setInstrumentView('fretboard')}
+              className={cn("px-4 py-1.5 text-[10px] uppercase tracking-wider font-bold transition-colors", instrumentView === 'fretboard' ? "bg-[#D4AF37] text-black" : "text-[#8E8E93] hover:text-white hover:bg-[#1A1A1C]")}
+            >Guitar</button>
+          </div>
+        )}
 
-        {/* Both always mounted so QWERTY/MIDI listeners stay active; CSS hides the inactive one */}
-        <div className={instrumentView === 'keyboard' ? '' : 'hidden'}>
-          <Keyboard activeNotes={combinedNotes} onNoteOn={handleNoteOn} onNoteOff={handleNoteOff} latchMode={!playMode} />
-        </div>
-        <div className={instrumentView === 'fretboard' ? '' : 'hidden'}>
-          <Fretboard activeNotes={combinedNotes} onNoteOn={handleNoteOn} onNoteOff={handleNoteOff} latchMode={!playMode} />
-        </div>
+        {song.tracks[activeTrackIndex]?.instrument === 'drums' ? (
+          /* Drum pad panel */
+          <div className="px-6 py-4">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-3">Drum Pads</div>
+            <div className="grid grid-cols-3 gap-2 max-w-sm">
+              {DRUM_PITCHES.map(pitch => {
+                const isActive = activeNotes.has(pitch);
+                return (
+                  <button
+                    key={pitch}
+                    onMouseDown={async e => {
+                      e.preventDefault();
+                      await audio.init();
+                      if (playMode) {
+                        audio.playNoteRealtime(pitch);
+                        setTimeout(() => audio.stopNoteRealtime(pitch), 200);
+                      } else {
+                        if (activeNotes.has(pitch)) {
+                          setActiveNotes(prev => { const n = new Set(prev); n.delete(pitch); return n; });
+                          audio.stopNoteRealtime(pitch);
+                        } else {
+                          setActiveNotes(prev => { const n = new Set(prev); n.add(pitch); return n; });
+                          audio.playNoteRealtime(pitch);
+                        }
+                      }
+                    }}
+                    className={cn(
+                      "rounded p-2.5 text-[10px] font-bold uppercase tracking-wider border transition-colors cursor-pointer select-none",
+                      isActive
+                        ? "bg-[#D4AF37] border-[#D4AF37] text-black"
+                        : "bg-[#151517] border-[#333] text-[#D1D1D1] hover:border-[#D4AF37] hover:text-[#D4AF37]"
+                    )}
+                  >
+                    {DRUM_LABELS[pitch]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Both always mounted so QWERTY/MIDI listeners stay active; CSS hides the inactive one */}
+            <div className={instrumentView === 'keyboard' ? '' : 'hidden'}>
+              <Keyboard activeNotes={combinedNotes} onNoteOn={handleNoteOn} onNoteOff={handleNoteOff} latchMode={!playMode} />
+            </div>
+            <div className={instrumentView === 'fretboard' ? '' : 'hidden'}>
+              <Fretboard activeNotes={combinedNotes} onNoteOn={handleNoteOn} onNoteOff={handleNoteOff} latchMode={!playMode} />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Template Picker Modal */}

@@ -28,6 +28,14 @@ export const CHORD_SECTION_HEADER_H = 28;
 export const CHORD_DIAG_COL_W = 80;  // px per diagram column including gap
 export const CHORD_DIAG_ROW_H = 116; // px per diagram row: label (14) + diagram (88) + gap (14)
 
+// Drum kit pitch slots (top → bottom in percussion staff)
+export const DRUM_PITCHES = ['B5', 'A5', 'G5', 'F5', 'E4', 'D4', 'C4', 'A3', 'F3'] as const;
+export const DRUM_LABELS: Record<string, string> = {
+  B5: 'Crash', A5: 'Ride', G5: 'Open HH', F5: 'Hi-Hat',
+  E4: 'Hi Tom', D4: 'Mid Tom', C4: 'Snare', A3: 'Fl. Tom', F3: 'Kick',
+};
+const DRUM_X_HEADS = new Set(['B5', 'A5', 'G5', 'F5']);
+
 // ── Guitar chord diagram helpers ─────────────────────────────────────────────
 // String indices: 0 = high e (E4=64), 1 = B3, 2 = G3, 3 = D3, 4 = A2, 5 = low E (E2=40)
 const GUITAR_OPEN_MIDI = [64, 59, 55, 50, 45, 40];
@@ -198,7 +206,7 @@ function durToVF(beats: number): string {
   return '64';
 }
 
-function buildStaveNote(VF: any, chordNotes: NoteData[], fg: string, clef = 'treble'): any {
+function buildStaveNote(VF: any, chordNotes: NoteData[], fg: string, clef = 'treble', isDrum = false): any {
   const isRest = chordNotes.length === 1 && !!chordNotes[0].isRest;
   const dur = chordNotes[0].duration;
 
@@ -210,9 +218,15 @@ function buildStaveNote(VF: any, chordNotes: NoteData[], fg: string, clef = 'tre
   let vfDur = durToVF(dur);
   if (isRest) vfDur += 'r';
 
-  const sn = new VF.StaveNote({ keys, duration: vfDur, clef });
+  const needsXHead = isDrum && chordNotes.some(n => DRUM_X_HEADS.has(n.pitch));
+  const sn = new VF.StaveNote({
+    keys,
+    duration: vfDur,
+    clef,
+    ...(needsXHead ? { note_type: 'x' } : {}),
+  });
 
-  if (!isRest) {
+  if (!isRest && !isDrum) {
     keys.forEach((key: string, i: number) => {
       if (key.includes('#')) sn.addModifier(new VF.Accidental('#'), i);
       else if (key.match(/^[a-g]b\//)) sn.addModifier(new VF.Accidental('b'), i);
@@ -372,7 +386,8 @@ function renderTrackMeasure(
   fg: string,
   clef: string,
   tieState: Map<string, any>,
-  beamGroupSize?: number
+  beamGroupSize?: number,
+  isDrum = false
 ) {
   const { notesWidthPerMeasure, measuresPerRow } = layout;
   const colIdx = mIndex % measuresPerRow;
@@ -393,7 +408,7 @@ function renderTrackMeasure(
     const renderVoice = (voiceNotes: NoteData[], stemDir: number | null, vKey: string) => {
       if (voiceNotes.length === 0) return null;
       const overridden = voiceNotes.map(n => ({ ...n, duration: seg.duration }));
-      const sn = buildStaveNote(VF, overridden, fg, clef);
+      const sn = buildStaveNote(VF, overridden, fg, clef, isDrum);
       if (stemDir !== null) { try { sn.setStemDirection(stemDir); } catch (_) {} }
       const tc = new VF.TickContext();
       tc.addTickable(sn);
@@ -488,6 +503,8 @@ export function renderNotation(
   }
 
   song.tracks.forEach((track, tIndex) => {
+    const isDrum = track.instrument === 'drums';
+    const trackClef = isDrum ? 'percussion' : 'treble';
     const trebleNotes = track.grandStaff
       ? track.notes.filter(n => n.isRest || noteToMidi(n.pitch) >= 60)
       : track.notes;
@@ -512,9 +529,11 @@ export function renderNotation(
       const stave = new VF.Stave(staveX, staveY, staveWidth);
 
       if (colIdx === 0) {
-        stave.addClef('treble');
-        const ks = song.keySignature;
-        if (ks && ks !== 'C') stave.addKeySignature(ks);
+        stave.addClef(trackClef);
+        if (!isDrum) {
+          const ks = song.keySignature;
+          if (ks && ks !== 'C') stave.addKeySignature(ks);
+        }
         if (mIndex === 0) {
           stave.addTimeSignature(`${song.timeSignature[0]}/${song.timeSignature[1]}`);
         }
@@ -546,7 +565,7 @@ export function renderNotation(
         try { const l = new VF.StaveConnector(stave, bassStave); l.setType((VF.StaveConnector as any).type.SINGLE_LEFT); l.setContext(context).draw(); } catch (_) {}
       }
 
-      renderTrackMeasure(VF, context, trebleSegs.get(mIndex) ?? [], beatsPerMeasure, mIndex, layout, stave, fg, 'treble', trebleTies, beamGroupSize);
+      renderTrackMeasure(VF, context, trebleSegs.get(mIndex) ?? [], beatsPerMeasure, mIndex, layout, stave, fg, trackClef, trebleTies, beamGroupSize, isDrum);
       if (track.grandStaff && bassStave) {
         renderTrackMeasure(VF, context, bassSegs.get(mIndex) ?? [], beatsPerMeasure, mIndex, layout, bassStave, fg, 'bass', bassTies, beamGroupSize);
       }
