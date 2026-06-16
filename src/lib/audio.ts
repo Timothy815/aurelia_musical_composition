@@ -428,6 +428,8 @@ class AudioEngine {
   private fxTremolo: Tone.Tremolo | null = null;
   private fxDelay: Tone.FeedbackDelay | null = null;
   private fxReverb: Tone.Freeverb | null = null;
+  private fxVibrato: Tone.Vibrato | null = null;
+  private midiAccess: any = null;
 
   onNotePlay?: (pitch: string) => void;
   onNoteStop?: (pitch: string) => void;
@@ -451,10 +453,11 @@ class AudioEngine {
         this.fxTremolo   = new Tone.Tremolo({ frequency: 4,   depth: 0.8,   wet: 0 }).start();
         this.fxDelay     = new Tone.FeedbackDelay({ delayTime: 0.375, feedback: 0.4, wet: 0 });
         this.fxReverb    = new Tone.Freeverb({ roomSize: 0.7, dampening: 3000, wet: 0 });
+        this.fxVibrato   = new Tone.Vibrato({ frequency: 5, depth: 0, wet: 1 });
 
         (this.fxFuzz as any).wet.value = 0;
 
-        // Chain in series: masterBus → fuzz → overdrive → phaser → chorus → flanger → tremolo → delay → reverb → dest
+        // Chain in series: masterBus → fuzz → overdrive → phaser → chorus → flanger → tremolo → delay → reverb → vibrato → dest
         // NOTE: .connect() returns `this` (the source), so chaining it wires everything in parallel.
         // .chain() wires nodes in series as expected.
         this.masterBus.chain(
@@ -466,6 +469,7 @@ class AudioEngine {
           this.fxTremolo!,
           this.fxDelay!,
           this.fxReverb!,
+          this.fxVibrato!,
           Tone.getDestination()
         );
 
@@ -507,9 +511,68 @@ class AudioEngine {
         this.metronomeSynth.volume.value = -10;
 
         this.initialized = true;
+        this.initMidi();
       })();
     }
     return this.initPromise;
+  }
+
+  // ── MIDI device input ─────────────────────────────────────────────────────
+
+  private initMidi() {
+    if (!(navigator as any).requestMIDIAccess) return;
+    (navigator as any).requestMIDIAccess({ sysex: false })
+      .then((access: any) => {
+        this.midiAccess = access;
+        access.inputs.forEach((input: any) => {
+          input.onmidimessage = (e: any) => this.handleMidiMessage(e);
+        });
+        access.onstatechange = (e: any) => {
+          if (e.port.type === 'input' && e.port.state === 'connected') {
+            e.port.onmidimessage = (msg: any) => this.handleMidiMessage(msg);
+          }
+        };
+      })
+      .catch(() => {});
+  }
+
+  private handleMidiMessage(event: any) {
+    const data: Uint8Array = event.data;
+    if (!data || data.length < 2) return;
+    const status = data[0];
+    const data1  = data[1];
+    const data2  = data.length > 2 ? data[2] : 0;
+    const type   = status & 0xF0;
+
+    if (type === 0xE0) {
+      // Pitch bend: 14-bit value centered at 8192, range ±2 semitones = ±200 cents
+      const raw   = ((data2 << 7) | data1) - 8192;
+      const cents = (raw / 8192) * 200;
+      this.applyPitchBend(cents);
+    } else if (type === 0xB0 && data1 === 1) {
+      // Modulation wheel (CC#1): drive vibrato depth 0–0.3
+      if (this.fxVibrato) {
+        (this.fxVibrato.depth as any).value = (data2 / 127) * 0.3;
+      }
+    }
+  }
+
+  applyPitchBend(cents: number) {
+    if (this.sampler) {
+      try { (this.sampler as any).detune.value = cents; } catch (_) {}
+    }
+    _samplerCache.forEach(s => {
+      try { (s as any).detune.value = cents; } catch (_) {}
+    });
+    if (this.realtimeFallback) {
+      try { (this.realtimeFallback as any).detune.value = cents; } catch (_) {}
+    }
+    if (this.fallbackSynth) {
+      try { (this.fallbackSynth as any).detune.value = cents; } catch (_) {}
+    }
+    if (this.previewSynth) {
+      try { (this.previewSynth as any).detune.value = cents; } catch (_) {}
+    }
   }
 
   // ── Effects ───────────────────────────────────────────────────────────────
