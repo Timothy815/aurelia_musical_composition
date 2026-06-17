@@ -30,7 +30,6 @@ jobs:
       - run: npm run build
         env:
           VITE_BASE_PATH: /aurelia_musical_composition/
-          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
 
       - uses: actions/upload-pages-artifact@v3
         with:
