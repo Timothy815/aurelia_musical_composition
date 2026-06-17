@@ -1014,62 +1014,57 @@ export default function App() {
         </button>
 
         {/* Google Drive cloud storage */}
-        <>
-          <div className="w-px h-5 bg-[#1F1F21] mx-1" />
-          {driveToken ? (
-            <>
+        {import.meta.env.VITE_GOOGLE_CLIENT_ID && (
+          <>
+            <div className="w-px h-5 bg-[#1F1F21] mx-1" />
+            {driveToken ? (
+              <>
+                <button
+                  disabled={driveSaving}
+                  onClick={async () => {
+                    setDriveSaving(true);
+                    try {
+                      const id = await saveToDrive(song, currentDriveFileId);
+                      setCurrentDriveFileId(id);
+                    } catch (e: any) {
+                      if (e.message === 'auth') { setDriveToken(null); alert('Session expired. Please reconnect Google Drive.'); }
+                      else alert(`Cloud save failed: ${e.message}`);
+                    } finally {
+                      setDriveSaving(false);
+                    }
+                  }}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded disabled:opacity-50"
+                  title={currentDriveFileId ? 'Update existing file in Google Drive' : 'Save new file to Google Drive'}
+                >
+                  <svg width="11" height="11" viewBox="0 0 48 48" className="shrink-0"><path fill="#4285F4" d="M16.2 31.7l8-13.9L30.8 31.7z"/><path fill="#34A853" d="M16.2 31.7h15.6l-3.2-5.6H19.4z"/><path fill="#EA4335" d="M24.2 17.8l-8 13.9h5.2l8-13.9z"/></svg>
+                  {driveSaving ? 'Saving…' : currentDriveFileId ? '↑ Drive' : '↑ Drive'}
+                </button>
+                <button
+                  onClick={() => setShowCloudPicker(true)}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded"
+                  title="Open a composition from Google Drive"
+                >
+                  <svg width="11" height="11" viewBox="0 0 48 48" className="shrink-0"><path fill="#4285F4" d="M16.2 31.7l8-13.9L30.8 31.7z"/><path fill="#34A853" d="M16.2 31.7h15.6l-3.2-5.6H19.4z"/><path fill="#EA4335" d="M24.2 17.8l-8 13.9h5.2l8-13.9z"/></svg>
+                  ↓ Drive
+                </button>
+                <button
+                  onClick={() => signOutFromDrive(setDriveToken)}
+                  className="px-2 py-1.5 text-[10px] text-[#555] hover:text-[#D1D1D1] transition-colors rounded"
+                  title="Disconnect Google Drive"
+                >✕</button>
+              </>
+            ) : (
               <button
-                disabled={driveSaving}
-                onClick={async () => {
-                  setDriveSaving(true);
-                  try {
-                    const id = await saveToDrive(song, currentDriveFileId);
-                    setCurrentDriveFileId(id);
-                  } catch (e: any) {
-                    if (e.message === 'auth') { setDriveToken(null); alert('Session expired. Please reconnect Google Drive.'); }
-                    else alert(`Cloud save failed: ${e.message}`);
-                  } finally {
-                    setDriveSaving(false);
-                  }
-                }}
-                className="flex items-center gap-1 px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded disabled:opacity-50"
-                title={currentDriveFileId ? 'Update existing file in Google Drive' : 'Save new file to Google Drive'}
+                onClick={() => requestGoogleSignIn()}
+                className="flex items-center gap-1 px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#8E8E93] hover:text-[#D1D1D1] border border-[#333] transition-colors rounded"
+                title="Connect Google Drive to save and open compositions in the cloud"
               >
                 <svg width="11" height="11" viewBox="0 0 48 48" className="shrink-0"><path fill="#4285F4" d="M16.2 31.7l8-13.9L30.8 31.7z"/><path fill="#34A853" d="M16.2 31.7h15.6l-3.2-5.6H19.4z"/><path fill="#EA4335" d="M24.2 17.8l-8 13.9h5.2l8-13.9z"/></svg>
-                {driveSaving ? 'Saving…' : '↑ Drive'}
+                Drive
               </button>
-              <button
-                onClick={() => setShowCloudPicker(true)}
-                className="flex items-center gap-1 px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded"
-                title="Open a composition from Google Drive"
-              >
-                <svg width="11" height="11" viewBox="0 0 48 48" className="shrink-0"><path fill="#4285F4" d="M16.2 31.7l8-13.9L30.8 31.7z"/><path fill="#34A853" d="M16.2 31.7h15.6l-3.2-5.6H19.4z"/><path fill="#EA4335" d="M24.2 17.8l-8 13.9h5.2l8-13.9z"/></svg>
-                ↓ Drive
-              </button>
-              <button
-                onClick={() => signOutFromDrive(setDriveToken)}
-                className="px-2 py-1.5 text-[10px] text-[#555] hover:text-[#D1D1D1] transition-colors rounded"
-                title="Disconnect Google Drive"
-              >✕</button>
-            </>
-          ) : (
-            <button
-              onClick={() => {
-                const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
-                if (!clientId) {
-                  alert('Google Drive is not configured yet.\n\nTo enable it:\n1. Go to console.cloud.google.com\n2. Create a project → Enable "Google Drive API"\n3. Create an OAuth 2.0 Client ID (Web application)\n4. Add http://localhost:3000 to Authorized JavaScript origins\n5. Add VITE_GOOGLE_CLIENT_ID=<your-client-id> to .env.local\n6. Restart the dev server');
-                  return;
-                }
-                requestGoogleSignIn();
-              }}
-              className="flex items-center gap-1 px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#8E8E93] hover:text-[#D1D1D1] border border-[#333] transition-colors rounded"
-              title="Connect Google Drive to save and open compositions in the cloud"
-            >
-              <svg width="11" height="11" viewBox="0 0 48 48" className="shrink-0"><path fill="#4285F4" d="M16.2 31.7l8-13.9L30.8 31.7z"/><path fill="#34A853" d="M16.2 31.7h15.6l-3.2-5.6H19.4z"/><path fill="#EA4335" d="M24.2 17.8l-8 13.9h5.2l8-13.9z"/></svg>
-              Drive
-            </button>
-          )}
-        </>
+            )}
+          </>
+        )}
 
         <div className="w-px h-5 bg-[#1F1F21] mx-1" />
         <button onClick={() => exportToPdf(song, showGuitarTab)} className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded">
