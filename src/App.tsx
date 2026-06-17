@@ -12,6 +12,8 @@ import { Notation } from './components/Notation';
 import { LeftSidebarPanel } from './components/LeftSidebarPanel';
 import { exportToMidi, exportToPdf, exportToMusicXML, saveFile, loadFile } from './lib/export';
 import { TemplatePickerModal } from './components/TemplatePickerModal';
+import { CloudFilePicker } from './components/CloudFilePicker';
+import { initDriveAuth, requestGoogleSignIn, signOutFromDrive, saveToDrive, loadFromDrive } from './lib/googleDrive';
 import { DRUM_PITCHES, DRUM_LABELS } from './lib/notation';
 
 // ── App ────────────────────────────────────────────────────────────────────
@@ -67,6 +69,12 @@ export default function App() {
   const [newRehearsalText, setNewRehearsalText] = useState('');
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
+  // Google Drive cloud storage
+  const [driveToken, setDriveToken] = useState<string | null>(null);
+  const [currentDriveFileId, setCurrentDriveFileId] = useState<string | null>(null);
+  const [showCloudPicker, setShowCloudPicker] = useState(false);
+  const [driveSaving, setDriveSaving] = useState(false);
+
   const [playheadBeat, setPlayheadBeat] = useState(-1);
   const [seekBeat, setSeekBeat] = useState(-1);
   const playheadRafRef = useRef<number | null>(null);
@@ -111,6 +119,13 @@ export default function App() {
       window.removeEventListener('keydown', initFn);
       window.removeEventListener('touchstart', initFn);
     };
+  }, []);
+
+  // Initialize Google Drive auth (silent sign-in for returning users)
+  useEffect(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+    if (!clientId) return;
+    initDriveAuth(clientId, setDriveToken);
   }, []);
 
   // Keep MIDI refs in sync with latest render state
@@ -986,17 +1001,71 @@ export default function App() {
         <button
           onClick={() => saveFile(song)}
           className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded"
-          title="Save composition (.aurelia)"
+          title="Save composition to local file (.aurelia)"
         >
           Save
         </button>
         <button
-          onClick={() => loadFile().then(data => { dispatch({ type: 'SET', payload: data }); setSelectedNoteIds(new Set()); })}
+          onClick={() => loadFile().then(data => { dispatch({ type: 'SET', payload: data }); setSelectedNoteIds(new Set()); setCurrentDriveFileId(null); })}
           className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded"
-          title="Open composition (.aurelia or .json)"
+          title="Open composition from local file (.aurelia or .json)"
         >
           Open
         </button>
+
+        {/* Google Drive cloud storage */}
+        {import.meta.env.VITE_GOOGLE_CLIENT_ID && (
+          <>
+            <div className="w-px h-5 bg-[#1F1F21] mx-1" />
+            {driveToken ? (
+              <>
+                <button
+                  disabled={driveSaving}
+                  onClick={async () => {
+                    setDriveSaving(true);
+                    try {
+                      const id = await saveToDrive(song, currentDriveFileId);
+                      setCurrentDriveFileId(id);
+                    } catch (e: any) {
+                      if (e.message === 'auth') { setDriveToken(null); alert('Session expired. Please reconnect Google Drive.'); }
+                      else alert(`Cloud save failed: ${e.message}`);
+                    } finally {
+                      setDriveSaving(false);
+                    }
+                  }}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded disabled:opacity-50"
+                  title={currentDriveFileId ? 'Update existing file in Google Drive' : 'Save new file to Google Drive'}
+                >
+                  <svg width="11" height="11" viewBox="0 0 48 48" className="shrink-0"><path fill="#4285F4" d="M16.2 31.7l8-13.9L30.8 31.7z"/><path fill="#34A853" d="M16.2 31.7h15.6l-3.2-5.6H19.4z"/><path fill="#EA4335" d="M24.2 17.8l-8 13.9h5.2l8-13.9z"/></svg>
+                  {driveSaving ? 'Saving…' : currentDriveFileId ? '↑ Drive' : '↑ Drive'}
+                </button>
+                <button
+                  onClick={() => setShowCloudPicker(true)}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded"
+                  title="Open a composition from Google Drive"
+                >
+                  <svg width="11" height="11" viewBox="0 0 48 48" className="shrink-0"><path fill="#4285F4" d="M16.2 31.7l8-13.9L30.8 31.7z"/><path fill="#34A853" d="M16.2 31.7h15.6l-3.2-5.6H19.4z"/><path fill="#EA4335" d="M24.2 17.8l-8 13.9h5.2l8-13.9z"/></svg>
+                  ↓ Drive
+                </button>
+                <button
+                  onClick={() => signOutFromDrive(setDriveToken)}
+                  className="px-2 py-1.5 text-[10px] text-[#555] hover:text-[#D1D1D1] transition-colors rounded"
+                  title="Disconnect Google Drive"
+                >✕</button>
+              </>
+            ) : (
+              <button
+                onClick={() => requestGoogleSignIn()}
+                className="flex items-center gap-1 px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#8E8E93] hover:text-[#D1D1D1] border border-[#333] transition-colors rounded"
+                title="Connect Google Drive to save and open compositions in the cloud"
+              >
+                <svg width="11" height="11" viewBox="0 0 48 48" className="shrink-0"><path fill="#4285F4" d="M16.2 31.7l8-13.9L30.8 31.7z"/><path fill="#34A853" d="M16.2 31.7h15.6l-3.2-5.6H19.4z"/><path fill="#EA4335" d="M24.2 17.8l-8 13.9h5.2l8-13.9z"/></svg>
+                Drive
+              </button>
+            )}
+          </>
+        )}
+
         <div className="w-px h-5 bg-[#1F1F21] mx-1" />
         <button onClick={() => exportToPdf(song, showGuitarTab)} className="px-3 py-1.5 bg-[#1F1F21] hover:bg-[#2A2A2D] text-[10px] uppercase tracking-widest text-[#D1D1D1] border border-[#333] transition-colors rounded">
           PDF
@@ -1229,7 +1298,27 @@ export default function App() {
             dispatch({ type: 'SET', payload: newSong });
             setSelectedNoteIds(new Set());
             setActiveTrackIndex(0);
+            setCurrentDriveFileId(null);
             setShowTemplatePicker(false);
+          }}
+        />
+      )}
+
+      {/* Google Drive File Picker */}
+      {showCloudPicker && (
+        <CloudFilePicker
+          onClose={() => setShowCloudPicker(false)}
+          onOpen={async (fileId, fileName) => {
+            try {
+              const data = await loadFromDrive(fileId);
+              dispatch({ type: 'SET', payload: data });
+              setSelectedNoteIds(new Set());
+              setCurrentDriveFileId(fileId);
+              setShowCloudPicker(false);
+            } catch (e: any) {
+              if (e.message === 'auth') { setDriveToken(null); alert('Session expired. Please reconnect Google Drive.'); }
+              else alert(`Could not open "${fileName}": ${e.message}`);
+            }
           }}
         />
       )}
