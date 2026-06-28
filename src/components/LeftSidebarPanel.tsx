@@ -145,29 +145,13 @@ export function LeftSidebarPanel({
   showRehearsalMarks, setShowRehearsalMarks, newRehearsalMeasure, setNewRehearsalMeasure, newRehearsalText, setNewRehearsalText,
 }: LeftSidebarPanelProps) {
   const [chordInput, setChordInput] = React.useState('');
+  const [chordOctave, setChordOctave] = React.useState(4);
   const chordInputRef = React.useRef<HTMLInputElement>(null);
 
   const FLAT_TO_SHARP: Record<string, string> = {
     'Bb': 'A#', 'Eb': 'D#', 'Ab': 'G#', 'Db': 'C#', 'Gb': 'F#', 'Cb': 'B', 'Fb': 'E'
   };
   const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-
-  function parseChordInput(input: string): { name: string; octave: number } {
-    const trimmed = input.trim();
-    // Try full string as chord first — "A7" is a valid chord, not "A at octave 7"
-    const full = Chord.get(trimmed);
-    if (!full.empty && full.notes && full.notes.length > 0) return { name: trimmed, octave: 4 };
-    // If last character is a digit, treat it as the root octave
-    const lastChar = trimmed.slice(-1);
-    if (/[0-9]/.test(lastChar)) {
-      const withoutLast = trimmed.slice(0, -1);
-      const chord = Chord.get(withoutLast);
-      if (!chord.empty && chord.notes && chord.notes.length > 0) {
-        return { name: withoutLast, octave: parseInt(lastChar) };
-      }
-    }
-    return { name: trimmed, octave: 4 };
-  }
 
   function buildChordNotes(name: string, rootOctave = 4): string[] {
     const chord = Chord.get(name);
@@ -195,8 +179,7 @@ export function LeftSidebarPanel({
   async function loadChordByName(name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const { name: chordName, octave } = parseChordInput(trimmed);
-    const notes = buildChordNotes(chordName, octave);
+    const notes = buildChordNotes(trimmed, chordOctave);
     if (notes.length === 0) return;
     await audio.init();
     activeNotes.forEach(p => audio.stopNoteRealtime(p));
@@ -763,15 +746,23 @@ export function LeftSidebarPanel({
                   chordInputRef.current?.blur();
                 }
               }}
-              placeholder="Am, Am3, Am5, Cmaj74…"
+              placeholder="Am, Cmaj7, F#7…"
               className="flex-1 bg-[#151517] border border-[#222] focus:border-[#D4AF37] rounded px-2 py-1.5 text-[11px] text-[#D1D1D1] outline-none placeholder-[#333] transition-colors"
             />
+            <select
+              value={chordOctave}
+              onChange={e => setChordOctave(parseInt(e.target.value))}
+              className="bg-[#151517] border border-[#222] focus:border-[#D4AF37] rounded px-1 py-1.5 text-[11px] text-[#D1D1D1] outline-none cursor-pointer shrink-0"
+              title="Root octave"
+            >
+              {[1,2,3,4,5,6].map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
             <button
               onClick={() => { void loadChordByName(chordInput); chordInputRef.current?.blur(); }}
               className="px-2 py-1 bg-[#1A1A1C] border border-[#333] hover:border-[#D4AF37] rounded text-[10px] text-[#8E8E93] hover:text-[#D4AF37] transition-colors shrink-0"
             >Load</button>
           </div>
-          <p className="text-[9px] text-[#444] mt-1">Add a digit for octave: Am3, Am5, Cmaj74 — Enter loads, then Enter adds to score</p>
+          <p className="text-[9px] text-[#444] mt-1">Enter loads chord — then Enter again adds to score</p>
         </div>
 
         {/* Active Notes */}
