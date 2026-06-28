@@ -1,5 +1,6 @@
 import React from 'react';
 import { Plus, Copy } from 'lucide-react';
+import { Chord } from '@tonaljs/tonal';
 import { SongData, NoteData, InstrumentPreset, DynamicMarking, ArticulationMarking, EffectsSettings, HairpinData, VoltaData, SlurData, RehearsalMark, PedalMark, OttavaData } from '../types';
 import { cn, generateId } from '../lib/utils';
 import { audio } from '../lib/audio';
@@ -143,6 +144,47 @@ export function LeftSidebarPanel({
   showVoltas, setShowVoltas, newVoltaStart, setNewVoltaStart, newVoltaEnd, setNewVoltaEnd, newVoltaNumber, setNewVoltaNumber,
   showRehearsalMarks, setShowRehearsalMarks, newRehearsalMeasure, setNewRehearsalMeasure, newRehearsalText, setNewRehearsalText,
 }: LeftSidebarPanelProps) {
+  const [chordInput, setChordInput] = React.useState('');
+  const chordInputRef = React.useRef<HTMLInputElement>(null);
+
+  const FLAT_TO_SHARP: Record<string, string> = {
+    'Bb': 'A#', 'Eb': 'D#', 'Ab': 'G#', 'Db': 'C#', 'Gb': 'F#', 'Cb': 'B', 'Fb': 'E'
+  };
+  const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+  function buildChordNotes(name: string): string[] {
+    const chord = Chord.get(name);
+    if (!chord.notes || chord.notes.length === 0) return [];
+    const pcs = chord.notes.map((pc: string) => FLAT_TO_SHARP[pc] ?? pc);
+    const rootPcIdx = NOTES.indexOf(pcs[0]);
+    if (rootPcIdx === -1) return [];
+    let prevMidi = rootPcIdx + 60;
+    return pcs.map((pc: string, i: number) => {
+      const pcIdx = NOTES.indexOf(pc);
+      if (pcIdx === -1) return '';
+      let midi: number;
+      if (i === 0) {
+        midi = rootPcIdx + 60;
+      } else {
+        const base = Math.floor(prevMidi / 12) * 12;
+        midi = pcIdx + base + (pcIdx <= prevMidi % 12 ? 12 : 0);
+      }
+      prevMidi = midi;
+      return `${pc}${Math.floor(midi / 12) - 1}`;
+    }).filter(s => s.length > 0);
+  }
+
+  async function loadChordByName(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const notes = buildChordNotes(trimmed);
+    if (notes.length === 0) return;
+    await audio.init();
+    activeNotes.forEach(p => audio.stopNoteRealtime(p));
+    setActiveNotes(new Set<string>(notes));
+    notes.forEach(p => audio.playNoteRealtime(p));
+  }
+
   const updateFx = <K extends keyof EffectsSettings>(key: K, patch: Partial<EffectsSettings[K]>) =>
     setEffectsSettings(s => ({ ...s, [key]: { ...s[key], ...patch } }));
 
@@ -685,8 +727,36 @@ export function LeftSidebarPanel({
           </div>
         )}
 
+        {/* Chord by Name */}
+        <div className="mt-4">
+          <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666] mb-2">Load Chord by Name</h2>
+          <div className="flex gap-1">
+            <input
+              ref={chordInputRef}
+              type="text"
+              value={chordInput}
+              onChange={e => setChordInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void loadChordByName(chordInput);
+                  chordInputRef.current?.blur();
+                }
+              }}
+              placeholder="Am, Cmaj7, F#7…"
+              className="flex-1 bg-[#151517] border border-[#222] focus:border-[#D4AF37] rounded px-2 py-1.5 text-[11px] text-[#D1D1D1] outline-none placeholder-[#333] transition-colors"
+            />
+            <button
+              onClick={() => { void loadChordByName(chordInput); chordInputRef.current?.blur(); }}
+              className="px-2 py-1 bg-[#1A1A1C] border border-[#333] hover:border-[#D4AF37] rounded text-[10px] text-[#8E8E93] hover:text-[#D4AF37] transition-colors shrink-0"
+            >Load</button>
+          </div>
+          <p className="text-[9px] text-[#444] mt-1">Enter loads, then press Enter again to add to score</p>
+        </div>
+
         {/* Active Notes */}
-        <div className="mt-6">
+        <div className="mt-4">
           <div className="flex justify-between items-center mb-3">
             <h2 className="text-[10px] uppercase tracking-[0.2em] text-[#666]">Active Notes</h2>
             {activeNotes.size > 0 && (
