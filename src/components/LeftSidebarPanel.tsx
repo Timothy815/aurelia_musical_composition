@@ -152,19 +152,37 @@ export function LeftSidebarPanel({
   };
   const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
-  function buildChordNotes(name: string): string[] {
+  function parseChordInput(input: string): { name: string; octave: number } {
+    const trimmed = input.trim();
+    // Try full string as chord first — "A7" is a valid chord, not "A at octave 7"
+    const full = Chord.get(trimmed);
+    if (!full.empty && full.notes && full.notes.length > 0) return { name: trimmed, octave: 4 };
+    // If last character is a digit, treat it as the root octave
+    const lastChar = trimmed.slice(-1);
+    if (/[0-9]/.test(lastChar)) {
+      const withoutLast = trimmed.slice(0, -1);
+      const chord = Chord.get(withoutLast);
+      if (!chord.empty && chord.notes && chord.notes.length > 0) {
+        return { name: withoutLast, octave: parseInt(lastChar) };
+      }
+    }
+    return { name: trimmed, octave: 4 };
+  }
+
+  function buildChordNotes(name: string, rootOctave = 4): string[] {
     const chord = Chord.get(name);
     if (!chord.notes || chord.notes.length === 0) return [];
     const pcs = chord.notes.map((pc: string) => FLAT_TO_SHARP[pc] ?? pc);
     const rootPcIdx = NOTES.indexOf(pcs[0]);
     if (rootPcIdx === -1) return [];
-    let prevMidi = rootPcIdx + 60;
+    const rootMidi = rootPcIdx + (rootOctave + 1) * 12;
+    let prevMidi = rootMidi;
     return pcs.map((pc: string, i: number) => {
       const pcIdx = NOTES.indexOf(pc);
       if (pcIdx === -1) return '';
       let midi: number;
       if (i === 0) {
-        midi = rootPcIdx + 60;
+        midi = rootMidi;
       } else {
         const base = Math.floor(prevMidi / 12) * 12;
         midi = pcIdx + base + (pcIdx <= prevMidi % 12 ? 12 : 0);
@@ -177,7 +195,8 @@ export function LeftSidebarPanel({
   async function loadChordByName(name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const notes = buildChordNotes(trimmed);
+    const { name: chordName, octave } = parseChordInput(trimmed);
+    const notes = buildChordNotes(chordName, octave);
     if (notes.length === 0) return;
     await audio.init();
     activeNotes.forEach(p => audio.stopNoteRealtime(p));
@@ -744,7 +763,7 @@ export function LeftSidebarPanel({
                   chordInputRef.current?.blur();
                 }
               }}
-              placeholder="Am, Cmaj7, F#7…"
+              placeholder="Am, Am3, Am5, Cmaj74…"
               className="flex-1 bg-[#151517] border border-[#222] focus:border-[#D4AF37] rounded px-2 py-1.5 text-[11px] text-[#D1D1D1] outline-none placeholder-[#333] transition-colors"
             />
             <button
@@ -752,7 +771,7 @@ export function LeftSidebarPanel({
               className="px-2 py-1 bg-[#1A1A1C] border border-[#333] hover:border-[#D4AF37] rounded text-[10px] text-[#8E8E93] hover:text-[#D4AF37] transition-colors shrink-0"
             >Load</button>
           </div>
-          <p className="text-[9px] text-[#444] mt-1">Enter loads, then press Enter again to add to score</p>
+          <p className="text-[9px] text-[#444] mt-1">Add a digit for octave: Am3, Am5, Cmaj74 — Enter loads, then Enter adds to score</p>
         </div>
 
         {/* Active Notes */}
